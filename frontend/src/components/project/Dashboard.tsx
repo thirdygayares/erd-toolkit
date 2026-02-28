@@ -1727,7 +1727,9 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
                                   Fields
                                 </div>
 
-                                {table.columns.map((column) => {
+                                <div className="overflow-x-auto">
+                                  <div className="space-y-1 min-w-min">
+                                    {table.columns.map((column) => {
                                   const draftName =
                                     columnNameDrafts[column.column_id] ??
                                     column.column_name;
@@ -1843,8 +1845,10 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
                                     </div>
                                   );
                                 })}
+                                  </div>
+                                </div>
 
-                                <div className="grid grid-cols-[1fr_100px_auto_auto] gap-1 pt-1">
+                                <div className="grid grid-cols-[1fr_100px_auto_auto] gap-1 pt-1 min-w-min overflow-x-auto">
                                   <input
                                     value={columnDraft.name}
                                     onChange={(event) =>
