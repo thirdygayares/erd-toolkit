@@ -5,7 +5,6 @@ import {
   ConnectionMode,
   Controls,
   type Edge,
-  MarkerType,
   MiniMap,
   type Node,
   type NodeMouseHandler,
@@ -18,6 +17,7 @@ import { useMemo, useRef, useState } from "react";
 
 import type { DiagramDetailResponse } from "@/lib/types";
 
+import { RelationshipEdge } from "./RelationshipEdge";
 import { TableNode, type TableNodeType } from "./TableNode";
 
 interface DiagramCanvasProps {
@@ -47,6 +47,10 @@ const nodeTypes = {
   tableNode: TableNode,
 };
 
+const edgeTypes = {
+  relationshipEdge: RelationshipEdge,
+};
+
 type PaneMenuState = {
   x: number;
   y: number;
@@ -64,8 +68,13 @@ function extractColumnId(handleId: string | null | undefined) {
   if (!handleId) {
     return null;
   }
-  const [, columnId] = handleId.split("-");
-  return columnId ?? null;
+  if (handleId.startsWith("out-")) {
+    return handleId.slice(4);
+  }
+  if (handleId.startsWith("in-")) {
+    return handleId.slice(3);
+  }
+  return null;
 }
 
 export function DiagramCanvas({
@@ -89,6 +98,21 @@ export function DiagramCanvas({
   const [nodeMenu, setNodeMenu] = useState<NodeMenuState | null>(null);
 
   const nodes: TableNodeType[] = useMemo(() => {
+    const relatedColumnsByTable = new Map<string, Set<string>>();
+    for (const relationship of diagram?.relationships ?? []) {
+      const fromSet =
+        relatedColumnsByTable.get(relationship.from_table_id) ??
+        new Set<string>();
+      fromSet.add(relationship.from_column_id);
+      relatedColumnsByTable.set(relationship.from_table_id, fromSet);
+
+      const toSet =
+        relatedColumnsByTable.get(relationship.to_table_id) ??
+        new Set<string>();
+      toSet.add(relationship.to_column_id);
+      relatedColumnsByTable.set(relationship.to_table_id, toSet);
+    }
+
     return (diagram?.tables ?? []).map((table) => ({
       id: table.table_id,
       type: "tableNode",
@@ -103,43 +127,34 @@ export function DiagramCanvas({
         displayName: table.display_name ?? table.table_name,
         colorHex: table.color_hex ?? "#65d5b8",
         columns: table.columns,
+        relatedColumnIds: Array.from(
+          relatedColumnsByTable.get(table.table_id) ?? [],
+        ),
       },
       selected: table.table_id === selectedTableId,
     }));
-  }, [diagram?.tables, selectedTableId]);
+  }, [diagram?.relationships, diagram?.tables, selectedTableId]);
 
   const edges: Edge[] = useMemo(() => {
     return (diagram?.relationships ?? []).map((relationship) => ({
       id: relationship.relationship_id,
+      type: "relationshipEdge",
       source: relationship.from_table_id,
       target: relationship.to_table_id,
       sourceHandle: `out-${relationship.from_column_id}`,
       targetHandle: `in-${relationship.to_column_id}`,
-      label: `${relationship.cardinality_from}:${relationship.cardinality_to}`,
-      type: "step",
-      markerEnd: {
-        type: MarkerType.ArrowClosed,
-        width: 20,
-        height: 20,
-        color: "#334155",
+      animated:
+        relationship.from_table_id === selectedTableId ||
+        relationship.to_table_id === selectedTableId,
+      data: {
+        cardinalityFrom: relationship.cardinality_from,
+        cardinalityTo: relationship.cardinality_to,
+        isActive:
+          relationship.from_table_id === selectedTableId ||
+          relationship.to_table_id === selectedTableId,
       },
-      style: {
-        stroke: "#334155",
-        strokeWidth: 2.2,
-      },
-      labelStyle: {
-        fill: "#334155",
-        fontSize: 11,
-        fontWeight: 700,
-      },
-      labelBgStyle: {
-        fill: "#ffffff",
-        fillOpacity: 0.96,
-      },
-      labelBgPadding: [4, 2],
-      labelBgBorderRadius: 4,
     }));
-  }, [diagram?.relationships]);
+  }, [diagram?.relationships, selectedTableId]);
 
   const closeMenus = () => {
     setPaneMenu(null);
@@ -254,6 +269,7 @@ export function DiagramCanvas({
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         onInit={setReactFlowInstance}
         onNodeClick={handleNodeClick}
         onNodeContextMenu={handleNodeContextMenu}

@@ -51,14 +51,14 @@ export function RelationshipEdge({
     sourcePosition,
     targetPosition,
     borderRadius: 10,
-    offset: 14,
+    offset: 6,
   });
 
   const sourceLabel = relationshipData.cardinalityFrom ?? "N";
   const targetLabel = relationshipData.cardinalityTo ?? "1";
   const isActive = relationshipData.isActive ?? false;
-  const sourceOffset = getBadgeOffset(sourcePosition, 10);
-  const targetOffset = getBadgeOffset(targetPosition, 10);
+  const sourceOffset = getBadgeOffset(sourcePosition, 3);
+  const targetOffset = getBadgeOffset(targetPosition, 3);
 
   return (
     <>

@@ -5,7 +5,6 @@ import { KeyRound, Table2 } from "lucide-react";
 
 import type { ColumnResponse } from "@/lib/types";
 
-const HEADER_HEIGHT = 42;
 const ROW_HEIGHT = 34;
 
 export interface TableNodeData extends Record<string, unknown> {
@@ -15,6 +14,7 @@ export interface TableNodeData extends Record<string, unknown> {
   displayName: string;
   colorHex: string;
   columns: ColumnResponse[];
+  relatedColumnIds: string[];
 }
 
 export type TableNodeType = Node<TableNodeData, "tableNode">;
@@ -33,6 +33,7 @@ function withOpacity(hexColor: string, alphaHex: string) {
 
 export function TableNode({ data, selected }: NodeProps<TableNodeType>) {
   const headerColor = data.colorHex || "#6dd3b9";
+  const relatedColumnSet = new Set(data.relatedColumnIds ?? []);
   return (
     <div
       className={`w-[280px] overflow-hidden rounded-xl border-2 bg-white shadow-sm transition-colors ${
@@ -67,24 +68,42 @@ export function TableNode({ data, selected }: NodeProps<TableNodeType>) {
           </div>
         ) : (
           data.columns.map((column, index) => {
-            const handleTop =
-              HEADER_HEIGHT + index * ROW_HEIGHT + ROW_HEIGHT / 2;
+            const handleTop = index * ROW_HEIGHT + ROW_HEIGHT / 2;
+            const isRelatedColumn = relatedColumnSet.has(column.column_id);
             return (
               <div
                 key={column.column_id}
-                className="grid h-[34px] grid-cols-[1fr_auto] items-center border-b border-slate-200 px-4 text-sm"
+                className={`grid h-[34px] grid-cols-[1fr_auto] items-center border-b border-slate-200 px-4 text-sm ${
+                  selected && isRelatedColumn ? "bg-pink-50" : ""
+                }`}
               >
                 <div className="flex min-w-0 items-center gap-2">
                   {column.is_primary_key ? (
-                    <KeyRound className="h-4 w-4 shrink-0 text-slate-500" />
+                    <KeyRound
+                      className={`h-4 w-4 shrink-0 ${
+                        selected && isRelatedColumn
+                          ? "text-blue-600"
+                          : "text-slate-500"
+                      }`}
+                    />
                   ) : null}
-                  <span className="truncate font-medium text-slate-900">
+                  <span
+                    className={`truncate font-medium ${
+                      selected && isRelatedColumn
+                        ? "text-blue-600"
+                        : "text-slate-900"
+                    }`}
+                  >
                     {column.column_name}
                   </span>
                 </div>
 
                 <span
-                  className="ml-3 truncate text-right text-base text-slate-500 [font-size:clamp(11px,0.8vw,16px)]"
+                  className={`ml-3 truncate text-right text-base [font-size:clamp(11px,0.8vw,16px)] ${
+                    selected && isRelatedColumn
+                      ? "text-blue-600"
+                      : "text-slate-500"
+                  }`}
                   title={renderTypeLabel(column)}
                 >
                   {renderTypeLabel(column)}
@@ -100,7 +119,9 @@ export function TableNode({ data, selected }: NodeProps<TableNodeType>) {
                     width: 12,
                     height: 12,
                     left: -6,
-                    background: "#475569",
+                    opacity: selected ? 1 : 0,
+                    pointerEvents: selected ? "auto" : "none",
+                    background: "#ec4899",
                     border: "2px solid #fff",
                   }}
                 />
@@ -114,7 +135,9 @@ export function TableNode({ data, selected }: NodeProps<TableNodeType>) {
                     width: 12,
                     height: 12,
                     right: -6,
-                    background: "#475569",
+                    opacity: selected ? 1 : 0,
+                    pointerEvents: selected ? "auto" : "none",
+                    background: "#ec4899",
                     border: "2px solid #fff",
                   }}
                 />
