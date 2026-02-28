@@ -1723,22 +1723,6 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
 
                             {isExpanded ? (
                               <div className="space-y-1 border-t border-slate-200 bg-white p-1.5 flex flex-col">
-                                <div className="pt-0.5">
-                                  <div className="mb-1 text-xs font-semibold text-slate-600">
-                                    Comments
-                                  </div>
-                                  <textarea
-                                    value={tableComments[table.table_id] ?? ""}
-                                    onChange={(event) =>
-                                      setTableComments((current) => ({
-                                        ...current,
-                                        [table.table_id]: event.target.value,
-                                      }))
-                                    }
-                                    placeholder="No comments"
-                                    className="h-12 w-full rounded-md border border-slate-300 p-1.5 text-xs outline-none focus:border-blue-500"
-                                  />
-                                </div>
 
                                 <div className="mt-1 pt-1 border-t border-slate-200">
                                   <div className="text-xs font-semibold text-slate-600 mb-1">
@@ -1864,61 +1848,77 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
                                     );
                                   })}
                                     </div>
-                                  </div>
-
-                                  <div className="grid grid-cols-[1fr_100px_auto_auto] gap-1 pt-1 min-w-min overflow-x-auto">
-                                    <input
-                                      value={columnDraft.name}
-                                      onChange={(event) =>
-                                        setNewColumnDraft(table.table_id, {
-                                          name: event.target.value,
-                                        })
-                                      }
-                                      onKeyDown={(event) => {
-                                        if (event.key === "Enter") {
-                                          event.preventDefault();
-                                          void addColumnToTable(table.table_id);
-                                        }
-                                      }}
-                                      onBlur={() => {
-                                        void addColumnToTable(table.table_id);
-                                      }}
-                                      placeholder="column_name"
-                                      className="rounded-md border border-slate-300 px-2 py-0.5 text-xs outline-none focus:border-blue-500"
-                                    />
-
-                                    <select
-                                      value={columnDraft.dataType}
-                                      onChange={(event) =>
-                                        setNewColumnDraft(table.table_id, {
-                                          dataType: event.target.value,
-                                        })
-                                      }
-                                      className="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-xs outline-none focus:border-blue-500"
-                                    >
-                                      {postgresTypeOptions.map((option) => (
-                                        <option key={option} value={option}>
-                                          {option}
-                                        </option>
-                                      ))}
-                                    </select>
-
-                                    <label className="inline-flex items-center justify-center rounded-md border border-slate-300 text-xs">
+                                    <div className="grid grid-cols-[1fr_100px_auto_auto] gap-1 pt-1 min-w-min overflow-x-auto">
                                       <input
-                                        type="checkbox"
-                                        checked={columnDraft.isNullable}
+                                        value={columnDraft.name}
                                         onChange={(event) =>
                                           setNewColumnDraft(table.table_id, {
-                                            isNullable: event.target.checked,
+                                            name: event.target.value,
                                           })
                                         }
-                                        className="h-3 w-3"
+                                        onKeyDown={(event) => {
+                                          if (event.key === "Enter") {
+                                            event.preventDefault();
+                                            void addColumnToTable(table.table_id);
+                                          }
+                                        }}
+                                        onBlur={() => {
+                                          void addColumnToTable(table.table_id);
+                                        }}
+                                        placeholder="column_name"
+                                        className="rounded-md border border-slate-300 px-2 py-0.5 text-xs outline-none focus:border-blue-500"
                                       />
-                                    </label>
-                                    <div className="inline-flex items-center justify-center rounded-md border border-dashed border-slate-300 px-1 text-[10px] text-slate-400">
-                                      ↵
+
+                                      <select
+                                        value={columnDraft.dataType}
+                                        onChange={(event) =>
+                                          setNewColumnDraft(table.table_id, {
+                                            dataType: event.target.value,
+                                          })
+                                        }
+                                        className="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-xs outline-none focus:border-blue-500"
+                                      >
+                                        {postgresTypeOptions.map((option) => (
+                                          <option key={option} value={option}>
+                                            {option}
+                                          </option>
+                                        ))}
+                                      </select>
+
+                                      <label className="inline-flex items-center justify-center rounded-md border border-slate-300 text-xs">
+                                        <input
+                                          type="checkbox"
+                                          checked={columnDraft.isNullable}
+                                          onChange={(event) =>
+                                            setNewColumnDraft(table.table_id, {
+                                              isNullable: event.target.checked,
+                                            })
+                                          }
+                                          className="h-3 w-3"
+                                        />
+                                      </label>
+                                      <div className="inline-flex items-center justify-center rounded-md border border-dashed border-slate-300 px-1 text-[10px] text-slate-400">
+                                        ↵
+                                      </div>
+                                    </div>
+                                    <div className="pt-0.5">
+                                      <div className="mb-1 text-xs font-semibold text-slate-600">
+                                        Comments
+                                      </div>
+                                      <textarea
+                                        value={tableComments[table.table_id] ?? ""}
+                                        onChange={(event) =>
+                                          setTableComments((current) => ({
+                                            ...current,
+                                            [table.table_id]: event.target.value,
+                                          }))
+                                        }
+                                        placeholder="No comments"
+                                        className="h-12 w-full rounded-md border border-slate-300 p-1.5 text-xs outline-none focus:border-blue-500"
+                                      />
                                     </div>
                                   </div>
+
                                 </div>
                               </div>
                             ) : null}
