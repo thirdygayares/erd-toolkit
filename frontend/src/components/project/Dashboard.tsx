@@ -1722,186 +1722,7 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
                             </div>
 
                             {isExpanded ? (
-                              <div className="space-y-1 border-t border-slate-200 bg-white p-1.5">
-                                <div className="text-xs font-semibold text-slate-600">
-                                  Fields
-                                </div>
-
-                                <div className="overflow-x-auto">
-                                  <div className="space-y-1 min-w-min">
-                                    {table.columns.map((column) => {
-                                  const draftName =
-                                    columnNameDrafts[column.column_id] ??
-                                    column.column_name;
-                                  const nullableLabel = column.is_nullable
-                                    ? "?"
-                                    : "N";
-
-                                  return (
-                                    <div
-                                      key={column.column_id}
-                                      className="grid grid-cols-[1fr_100px_32px_32px_32px] gap-1"
-                                    >
-                                      <input
-                                        value={draftName}
-                                        onChange={(event) =>
-                                          setColumnNameDrafts((current) => ({
-                                            ...current,
-                                            [column.column_id]:
-                                              event.target.value,
-                                          }))
-                                        }
-                                        onBlur={() => {
-                                          const nextValue = (
-                                            columnNameDrafts[
-                                              column.column_id
-                                            ] ?? ""
-                                          ).trim();
-                                          if (
-                                            nextValue &&
-                                            nextValue !== column.column_name
-                                          ) {
-                                            void updateColumn(
-                                              table.table_id,
-                                              column.column_id,
-                                              {
-                                                column_name: nextValue,
-                                              },
-                                            );
-                                          }
-                                        }}
-                                        className="rounded-md border border-slate-300 px-2 py-0.5 text-xs outline-none focus:border-blue-500"
-                                      />
-
-                                      <select
-                                        value={column.data_type}
-                                        onChange={(event) => {
-                                          void updateColumn(
-                                            table.table_id,
-                                            column.column_id,
-                                            {
-                                              data_type: event.target.value,
-                                            },
-                                          );
-                                        }}
-                                        className="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-xs outline-none focus:border-blue-500"
-                                      >
-                                        {postgresTypeOptions.map((option) => (
-                                          <option key={option} value={option}>
-                                            {option}
-                                          </option>
-                                        ))}
-                                      </select>
-
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          void updateColumn(
-                                            table.table_id,
-                                            column.column_id,
-                                            {
-                                              is_nullable: !column.is_nullable,
-                                            },
-                                          )
-                                        }
-                                        className="rounded-md border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-50"
-                                        title="Toggle nullable"
-                                      >
-                                        {nullableLabel}
-                                      </button>
-
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          void updateColumn(
-                                            table.table_id,
-                                            column.column_id,
-                                            {
-                                              is_primary_key:
-                                                !column.is_primary_key,
-                                            },
-                                          )
-                                        }
-                                        className={`rounded-md border border-slate-300 p-1 ${
-                                          column.is_primary_key
-                                            ? "bg-amber-50 text-amber-600"
-                                            : "text-slate-500 hover:bg-slate-50"
-                                        }`}
-                                        title="Toggle primary key"
-                                      >
-                                        <KeyRound className="mx-auto h-3.5 w-3.5" />
-                                      </button>
-
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          openFieldAttributes(table, column)
-                                        }
-                                        className="rounded-md border border-slate-300 p-1 text-slate-500 hover:bg-slate-50 text-xs font-bold"
-                                        title="Field attributes"
-                                      >
-                                        ...
-                                      </button>
-                                    </div>
-                                  );
-                                })}
-                                  </div>
-                                </div>
-
-                                <div className="grid grid-cols-[1fr_100px_auto_auto] gap-1 pt-1 min-w-min overflow-x-auto">
-                                  <input
-                                    value={columnDraft.name}
-                                    onChange={(event) =>
-                                      setNewColumnDraft(table.table_id, {
-                                        name: event.target.value,
-                                      })
-                                    }
-                                    onKeyDown={(event) => {
-                                      if (event.key === "Enter") {
-                                        event.preventDefault();
-                                        void addColumnToTable(table.table_id);
-                                      }
-                                    }}
-                                    onBlur={() => {
-                                      void addColumnToTable(table.table_id);
-                                    }}
-                                    placeholder="column_name"
-                                    className="rounded-md border border-slate-300 px-2 py-0.5 text-xs outline-none focus:border-blue-500"
-                                  />
-
-                                  <select
-                                    value={columnDraft.dataType}
-                                    onChange={(event) =>
-                                      setNewColumnDraft(table.table_id, {
-                                        dataType: event.target.value,
-                                      })
-                                    }
-                                    className="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-xs outline-none focus:border-blue-500"
-                                  >
-                                    {postgresTypeOptions.map((option) => (
-                                      <option key={option} value={option}>
-                                        {option}
-                                      </option>
-                                    ))}
-                                  </select>
-
-                                  <label className="inline-flex items-center justify-center rounded-md border border-slate-300 text-xs">
-                                    <input
-                                      type="checkbox"
-                                      checked={columnDraft.isNullable}
-                                      onChange={(event) =>
-                                        setNewColumnDraft(table.table_id, {
-                                          isNullable: event.target.checked,
-                                        })
-                                      }
-                                      className="h-3 w-3"
-                                    />
-                                  </label>
-                                  <div className="inline-flex items-center justify-center rounded-md border border-dashed border-slate-300 px-1 text-[10px] text-slate-400">
-                                    ↵
-                                  </div>
-                                </div>
-
+                              <div className="space-y-1 border-t border-slate-200 bg-white p-1.5 flex flex-col">
                                 <div className="pt-0.5">
                                   <div className="mb-1 text-xs font-semibold text-slate-600">
                                     Comments
@@ -1917,6 +1738,187 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
                                     placeholder="No comments"
                                     className="h-12 w-full rounded-md border border-slate-300 p-1.5 text-xs outline-none focus:border-blue-500"
                                   />
+                                </div>
+
+                                <div className="mt-1 pt-1 border-t border-slate-200">
+                                  <div className="text-xs font-semibold text-slate-600 mb-1">
+                                    Fields
+                                  </div>
+
+                                  <div className="overflow-x-auto">
+                                    <div className="space-y-1 min-w-min">
+                                      {table.columns.map((column) => {
+                                    const draftName =
+                                      columnNameDrafts[column.column_id] ??
+                                      column.column_name;
+                                    const nullableLabel = column.is_nullable
+                                      ? "?"
+                                      : "N";
+
+                                    return (
+                                      <div
+                                        key={column.column_id}
+                                        className="grid grid-cols-[1fr_100px_32px_32px_32px] gap-1"
+                                      >
+                                        <input
+                                          value={draftName}
+                                          onChange={(event) =>
+                                            setColumnNameDrafts((current) => ({
+                                              ...current,
+                                              [column.column_id]:
+                                                event.target.value,
+                                            }))
+                                          }
+                                          onBlur={() => {
+                                            const nextValue = (
+                                              columnNameDrafts[
+                                                column.column_id
+                                              ] ?? ""
+                                            ).trim();
+                                            if (
+                                              nextValue &&
+                                              nextValue !== column.column_name
+                                            ) {
+                                              void updateColumn(
+                                                table.table_id,
+                                                column.column_id,
+                                                {
+                                                  column_name: nextValue,
+                                                },
+                                              );
+                                            }
+                                          }}
+                                          className="rounded-md border border-slate-300 px-2 py-0.5 text-xs outline-none focus:border-blue-500"
+                                        />
+
+                                        <select
+                                          value={column.data_type}
+                                          onChange={(event) => {
+                                            void updateColumn(
+                                              table.table_id,
+                                              column.column_id,
+                                              {
+                                                data_type: event.target.value,
+                                              },
+                                            );
+                                          }}
+                                          className="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-xs outline-none focus:border-blue-500"
+                                        >
+                                          {postgresTypeOptions.map((option) => (
+                                            <option key={option} value={option}>
+                                              {option}
+                                            </option>
+                                          ))}
+                                        </select>
+
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            void updateColumn(
+                                              table.table_id,
+                                              column.column_id,
+                                              {
+                                                is_nullable: !column.is_nullable,
+                                              },
+                                            )
+                                          }
+                                          className="rounded-md border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                                          title="Toggle nullable"
+                                        >
+                                          {nullableLabel}
+                                        </button>
+
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            void updateColumn(
+                                              table.table_id,
+                                              column.column_id,
+                                              {
+                                                is_primary_key:
+                                                  !column.is_primary_key,
+                                              },
+                                            )
+                                          }
+                                          className={`rounded-md border border-slate-300 p-1 ${
+                                            column.is_primary_key
+                                              ? "bg-amber-50 text-amber-600"
+                                              : "text-slate-500 hover:bg-slate-50"
+                                          }`}
+                                          title="Toggle primary key"
+                                        >
+                                          <KeyRound className="mx-auto h-3.5 w-3.5" />
+                                        </button>
+
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            openFieldAttributes(table, column)
+                                          }
+                                          className="rounded-md border border-slate-300 p-1 text-slate-500 hover:bg-slate-50 text-xs font-bold"
+                                          title="Field attributes"
+                                        >
+                                          ...
+                                        </button>
+                                      </div>
+                                    );
+                                  })}
+                                    </div>
+                                  </div>
+
+                                  <div className="grid grid-cols-[1fr_100px_auto_auto] gap-1 pt-1 min-w-min overflow-x-auto">
+                                    <input
+                                      value={columnDraft.name}
+                                      onChange={(event) =>
+                                        setNewColumnDraft(table.table_id, {
+                                          name: event.target.value,
+                                        })
+                                      }
+                                      onKeyDown={(event) => {
+                                        if (event.key === "Enter") {
+                                          event.preventDefault();
+                                          void addColumnToTable(table.table_id);
+                                        }
+                                      }}
+                                      onBlur={() => {
+                                        void addColumnToTable(table.table_id);
+                                      }}
+                                      placeholder="column_name"
+                                      className="rounded-md border border-slate-300 px-2 py-0.5 text-xs outline-none focus:border-blue-500"
+                                    />
+
+                                    <select
+                                      value={columnDraft.dataType}
+                                      onChange={(event) =>
+                                        setNewColumnDraft(table.table_id, {
+                                          dataType: event.target.value,
+                                        })
+                                      }
+                                      className="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-xs outline-none focus:border-blue-500"
+                                    >
+                                      {postgresTypeOptions.map((option) => (
+                                        <option key={option} value={option}>
+                                          {option}
+                                        </option>
+                                      ))}
+                                    </select>
+
+                                    <label className="inline-flex items-center justify-center rounded-md border border-slate-300 text-xs">
+                                      <input
+                                        type="checkbox"
+                                        checked={columnDraft.isNullable}
+                                        onChange={(event) =>
+                                          setNewColumnDraft(table.table_id, {
+                                            isNullable: event.target.checked,
+                                          })
+                                        }
+                                        className="h-3 w-3"
+                                      />
+                                    </label>
+                                    <div className="inline-flex items-center justify-center rounded-md border border-dashed border-slate-300 px-1 text-[10px] text-slate-400">
+                                      ↵
+                                    </div>
+                                  </div>
                                 </div>
                               </div>
                             ) : null}
