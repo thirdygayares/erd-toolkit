@@ -1,0 +1,4 @@
+flyway.url=jdbc:postgresql://localhost:5432/erd_toolkit
+flyway.user=user
+flyway.password=password
+flyway.locations=filesystem:sql/migrations

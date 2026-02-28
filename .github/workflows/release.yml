@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: release-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history + tags)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Create semantic-release config
+        shell: bash
+        run: |
+          cat > .releaserc.json << 'EOF'
+          {
+            "branches": ["main"],
+            "tagFormat": "v${version}",
+            "plugins": [
+              ["@semantic-release/commit-analyzer", {
+                "preset": "conventionalcommits",
+                "releaseRules": [
+                  { "breaking": true, "release": "major" },
+
+                  { "type": "feat", "release": "minor" },
+
+                  { "type": "fix", "release": "patch" },
+                  { "type": "chore", "release": "patch" },
+                  { "type": "refactor", "release": "patch" },
+                  { "type": "tech", "release": "patch" }
+                ]
+              }],
+              ["@semantic-release/release-notes-generator", {
+                "preset": "conventionalcommits"
+              }],
+              ["@semantic-release/github", {
+                "successComment": false,
+                "failComment": false
+              }]
+            ]
+          }
+          EOF
+
+      - name: Install semantic-release tooling
+        run: |
+          npm i -g \
+            semantic-release \
+            @semantic-release/github \
+            @semantic-release/commit-analyzer \
+            @semantic-release/release-notes-generator \
+            conventional-changelog-conventionalcommits
+
+      - name: Run semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: semantic-release
