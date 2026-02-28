@@ -202,6 +202,9 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>("tables");
   const [isSidebarVisible, setIsSidebarVisible] = useState(true);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [sidebarPanelWidth, setSidebarPanelWidth] = useState(300);
+  const [isResizing, setIsResizing] = useState(false);
+  const sidebarRef = useRef<HTMLDivElement>(null);
   const [tableFilter, setTableFilter] = useState("");
   const [relationFilter, setRelationFilter] = useState("");
 
@@ -522,6 +525,48 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
       };
     });
   }, [selectedTable]);
+
+  // Load sidebar width from localStorage
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const saved = window.localStorage.getItem("ERD_SIDEBAR_WIDTH");
+    if (saved) {
+      const width = Math.max(250, Math.min(600, Number(saved)));
+      setSidebarPanelWidth(width);
+    }
+  }, []);
+
+  // Save sidebar width to localStorage
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem("ERD_SIDEBAR_WIDTH", String(sidebarPanelWidth));
+  }, [sidebarPanelWidth]);
+
+  // Handle resize events
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const handleResizeMove = (e: MouseEvent) => {
+      const newWidth = e.clientX - 56; // 56px is icon rail width
+      setSidebarPanelWidth(Math.max(250, Math.min(600, newWidth)));
+    };
+
+    const handleResizeEnd = () => {
+      setIsResizing(false);
+    };
+
+    window.addEventListener("mousemove", handleResizeMove);
+    window.addEventListener("mouseup", handleResizeEnd);
+
+    return () => {
+      window.removeEventListener("mousemove", handleResizeMove);
+      window.removeEventListener("mouseup", handleResizeEnd);
+    };
+  }, [isResizing]);
 
   function updateRelationshipSource(tableId: string) {
     const sourceTable = tables.find((table) => table.table_id === tableId);
@@ -1261,11 +1306,11 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
     ? "lg:translate-x-0"
     : "lg:-translate-x-full";
   const panelMobileState = isMobileSidebarOpen
-    ? "left-[56px] w-[min(300px,calc(100vw-56px))] translate-x-0 p-2"
-    : "left-[56px] w-0 -translate-x-full overflow-hidden p-0";
+    ? "left-[56px] translate-x-0 p-2"
+    : "left-[56px] -translate-x-full overflow-hidden p-0";
   const panelDesktopState = isSidebarVisible
-    ? "lg:left-[56px] lg:w-[300px] lg:translate-x-0 lg:p-2"
-    : "lg:left-[56px] lg:w-0 lg:-translate-x-full lg:overflow-hidden lg:p-0";
+    ? "lg:left-[56px] lg:translate-x-0 lg:p-2"
+    : "lg:left-[56px] lg:-translate-x-full lg:overflow-hidden lg:p-0";
 
   return (
     <div className="h-screen overflow-hidden bg-[#f8fafc] text-slate-900">
@@ -1430,13 +1475,21 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
         </aside>
 
         <aside
+          ref={sidebarRef}
           className={`absolute top-0 z-30 flex h-full min-h-0 flex-col gap-3 border-r border-slate-200 bg-white transition-all ${panelMobileState} ${panelDesktopState}`}
+          style={{
+            width: isMobileSidebarOpen
+              ? `min(${sidebarPanelWidth}px, calc(100vw - 56px))`
+              : isSidebarVisible
+                ? `${sidebarPanelWidth}px`
+                : "0px",
+          }}
         >
-          <section className="rounded-lg border border-slate-200 bg-white p-2">
+          <section className="rounded-lg border border-slate-200 bg-white p-1.5">
             {sidebarMode === "customTypes" ? (
               <div className="space-y-2">
                 <h3 className="text-xs font-semibold tracking-wide text-slate-700 uppercase">
-                  Custom Types (All Types)
+                  Custom Types
                 </h3>
                 <div className="max-h-[70vh] space-y-1 overflow-auto pr-1">
                   {customTypeOptions.map((typeName) => (
@@ -1450,16 +1503,16 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
                 </div>
               </div>
             ) : sidebarMode === "importExport" ? (
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 <h3 className="text-xs font-semibold tracking-wide text-slate-700 uppercase">
-                  Import / Export / Snapshot
+                  Import / Export
                 </h3>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-1.5">
                   <input
                     value={importHost}
                     onChange={(event) => setImportHost(event.target.value)}
                     placeholder="localhost"
-                    className="rounded-md border border-slate-300 px-2 py-1.5 text-sm outline-none focus:border-blue-500"
+                    className="rounded-md border border-slate-300 px-2 py-1 text-xs outline-none focus:border-blue-500"
                   />
                   <input
                     value={importPort}
@@ -1468,39 +1521,39 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
                     }
                     placeholder="5432"
                     type="number"
-                    className="rounded-md border border-slate-300 px-2 py-1.5 text-sm outline-none focus:border-blue-500"
+                    className="rounded-md border border-slate-300 px-2 py-1 text-xs outline-none focus:border-blue-500"
                   />
                   <input
                     value={importDatabase}
                     onChange={(event) => setImportDatabase(event.target.value)}
                     placeholder="database"
-                    className="rounded-md border border-slate-300 px-2 py-1.5 text-sm outline-none focus:border-blue-500"
+                    className="rounded-md border border-slate-300 px-2 py-1 text-xs outline-none focus:border-blue-500"
                   />
                   <input
                     value={importUser}
                     onChange={(event) => setImportUser(event.target.value)}
                     placeholder="user"
-                    className="rounded-md border border-slate-300 px-2 py-1.5 text-sm outline-none focus:border-blue-500"
+                    className="rounded-md border border-slate-300 px-2 py-1 text-xs outline-none focus:border-blue-500"
                   />
                   <input
                     value={importPassword}
                     onChange={(event) => setImportPassword(event.target.value)}
                     placeholder="password"
                     type="password"
-                    className="rounded-md border border-slate-300 px-2 py-1.5 text-sm outline-none focus:border-blue-500"
+                    className="rounded-md border border-slate-300 px-2 py-1 text-xs outline-none focus:border-blue-500"
                   />
                   <input
                     value={importSchema}
                     onChange={(event) => setImportSchema(event.target.value)}
                     placeholder="public"
-                    className="rounded-md border border-slate-300 px-2 py-1.5 text-sm outline-none focus:border-blue-500"
+                    className="rounded-md border border-slate-300 px-2 py-1 text-xs outline-none focus:border-blue-500"
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-1.5">
                   <button
                     type="button"
                     onClick={() => void importSchemaFromPostgres()}
-                    className="inline-flex items-center justify-center gap-1 rounded-md bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-700"
+                    className="inline-flex items-center justify-center gap-1 rounded-md bg-slate-900 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-slate-700"
                   >
                     <Database className="h-4 w-4" />
                     Import
@@ -1508,22 +1561,22 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
                   <button
                     type="button"
                     onClick={() => void createSnapshot()}
-                    className="inline-flex items-center justify-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold hover:bg-slate-50"
+                    className="inline-flex items-center justify-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold hover:bg-slate-50"
                   >
                     <Save className="h-4 w-4" />
                     Snapshot
                   </button>
                 </div>
-                <div className="grid grid-cols-[1fr_auto] gap-2">
+                <div className="grid grid-cols-[1fr_auto] gap-1.5">
                   <input
                     value={exportSchema}
                     onChange={(event) => setExportSchema(event.target.value)}
-                    className="rounded-md border border-slate-300 px-2 py-1.5 text-sm outline-none focus:border-blue-500"
+                    className="rounded-md border border-slate-300 px-2 py-1 text-xs outline-none focus:border-blue-500"
                   />
                   <button
                     type="button"
                     onClick={() => void exportSql()}
-                    className="inline-flex items-center justify-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold hover:bg-slate-50"
+                    className="inline-flex items-center justify-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold hover:bg-slate-50"
                   >
                     <Download className="h-4 w-4" />
                     Export
@@ -1532,17 +1585,17 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
                 <textarea
                   value={exportSqlOutput}
                   onChange={() => undefined}
-                  className="h-20 w-full rounded-md border border-slate-300 p-2 text-xs"
+                  className="h-16 w-full rounded-md border border-slate-300 p-1.5 text-xs"
                   placeholder="SQL output"
                 />
               </div>
             ) : (
               <>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-1.5">
                   <button
                     type="button"
                     onClick={() => setSidebarMode("tables")}
-                    className={`rounded-md px-3 py-2 text-sm font-semibold ${
+                    className={`rounded-md px-2.5 py-1.5 text-xs font-semibold ${
                       sidebarMode === "tables"
                         ? "bg-slate-900 text-white"
                         : "bg-slate-100 text-slate-600"
@@ -1553,7 +1606,7 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
                   <button
                     type="button"
                     onClick={() => setSidebarMode("relations")}
-                    className={`rounded-md px-3 py-2 text-sm font-semibold ${
+                    className={`rounded-md px-2.5 py-1.5 text-xs font-semibold ${
                       sidebarMode === "relations"
                         ? "bg-slate-900 text-white"
                         : "bg-slate-100 text-slate-600"
@@ -1564,30 +1617,30 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
                 </div>
 
                 {sidebarMode === "tables" ? (
-                  <div className="mt-3 space-y-3">
-                    <div className="grid grid-cols-[1fr_auto] gap-2">
+                  <div className="mt-2 space-y-2">
+                    <div className="grid grid-cols-[1fr_auto] gap-1.5">
                       <div className="relative">
-                        <Search className="pointer-events-none absolute top-2.5 left-2 h-4 w-4 text-slate-400" />
+                        <Search className="pointer-events-none absolute top-2 left-2 h-3.5 w-3.5 text-slate-400" />
                         <input
                           value={tableFilter}
                           onChange={(event) =>
                             setTableFilter(event.target.value)
                           }
                           placeholder="Filter"
-                          className="w-full rounded-md border border-slate-300 px-8 py-2 text-sm outline-none focus:border-blue-500"
+                          className="w-full rounded-md border border-slate-300 px-6 py-1.5 text-xs outline-none focus:border-blue-500"
                         />
                       </div>
                       <button
                         type="button"
                         onClick={() => openCreateTableDialog()}
-                        className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold hover:bg-slate-50"
+                        className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold hover:bg-slate-50"
                       >
-                        <Table2 className="h-4 w-4" />
-                        Add Table
+                        <Table2 className="h-3.5 w-3.5" />
+                        Add
                       </button>
                     </div>
 
-                    <div className="max-h-[52vh] space-y-2 overflow-auto pr-1">
+                    <div className="max-h-[52vh] space-y-1 overflow-auto pr-1">
                       {filteredTables.map((table) => {
                         const isExpanded =
                           expandedTables[table.table_id] ?? false;
@@ -1868,17 +1921,17 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
                     </div>
                   </div>
                 ) : (
-                  <div className="mt-3 space-y-3">
-                    <div className="grid grid-cols-[1fr_auto] gap-2">
+                  <div className="mt-2 space-y-2">
+                    <div className="grid grid-cols-[1fr_auto] gap-1.5">
                       <div className="relative">
-                        <Search className="pointer-events-none absolute top-2.5 left-2 h-4 w-4 text-slate-400" />
+                        <Search className="pointer-events-none absolute top-2 left-2 h-3.5 w-3.5 text-slate-400" />
                         <input
                           value={relationFilter}
                           onChange={(event) =>
                             setRelationFilter(event.target.value)
                           }
                           placeholder="Filter"
-                          className="w-full rounded-md border border-slate-300 px-8 py-2 text-sm outline-none focus:border-blue-500"
+                          className="w-full rounded-md border border-slate-300 px-6 py-1.5 text-xs outline-none focus:border-blue-500"
                         />
                       </div>
                       <button
@@ -1886,14 +1939,14 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
                         onClick={() => {
                           openCreateRelationshipDialog(selectedTableId);
                         }}
-                        className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold hover:bg-slate-50"
+                        className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold hover:bg-slate-50"
                       >
-                        <Link2 className="h-4 w-4" />
+                        <Link2 className="h-3.5 w-3.5" />
                         Add
                       </button>
                     </div>
 
-                    <div className="max-h-[34vh] space-y-2 overflow-auto pr-1">
+                    <div className="max-h-[34vh] space-y-1 overflow-auto pr-1">
                       {filteredRelationships.map((relationship) => {
                         const isExpanded =
                           expandedRelationships[relationship.relationship_id];
@@ -1919,9 +1972,9 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
                                   [relationship.relationship_id]: !isExpanded,
                                 }))
                               }
-                              className="flex w-full items-center justify-between gap-2 bg-slate-50 px-3 py-2 text-left"
+                              className="flex w-full items-center justify-between gap-2 bg-slate-50 px-2 py-1.5 text-left"
                             >
-                              <span className="truncate text-sm font-semibold">
+                              <span className="truncate text-xs font-semibold">
                                 {relationship.name}
                               </span>
                               <div className="flex items-center gap-1">
@@ -1985,10 +2038,10 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
                       onClick={() =>
                         openCreateRelationshipDialog(selectedTableId)
                       }
-                      className="inline-flex w-full items-center justify-center gap-1 rounded-md bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-700"
+                      className="inline-flex w-full items-center justify-center gap-1 rounded-md bg-slate-900 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-slate-700"
                     >
-                      <Link2 className="h-4 w-4" />
-                      New Relationship
+                      <Link2 className="h-3.5 w-3.5" />
+                      Add Rel
                     </button>
                   </div>
                 )}
@@ -1996,25 +2049,34 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
             )}
           </section>
 
-          <section className="rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-600">
+          <section className="rounded-lg border border-slate-200 bg-white p-1.5 text-xs text-slate-600">
             <div className="flex items-center gap-2 text-xs text-slate-700">
-              <Activity className="h-4 w-4 text-emerald-600" />
-              {statusMessage}
+              <Activity className="h-3.5 w-3.5 text-emerald-600" />
+              <span className="truncate">{statusMessage}</span>
             </div>
-            <div className="mt-2 text-xs">
-              <div>Workspace: {workspaceId}</div>
-              <div>Project: {projectId}</div>
-              <div>Diagram: {diagramId || "(creating...)"}</div>
+            <div className="mt-1 text-[10px] leading-tight text-slate-500">
+              <div className="truncate">WS: {workspaceId.slice(0, 8)}</div>
+              <div className="truncate">Proj: {projectId.slice(0, 8)}</div>
             </div>
           </section>
+
+          {isSidebarVisible && (
+            <div
+              onMouseDown={() => setIsResizing(true)}
+              className="absolute top-0 right-0 w-1 h-full cursor-col-resize bg-slate-200 hover:bg-blue-500 transition-colors"
+              style={{ cursor: isResizing ? "col-resize" : "col-resize" }}
+            />
+          )}
         </aside>
 
         <section
-          className={`absolute inset-0 ${
-            isSidebarVisible || isMobileSidebarOpen
-              ? "lg:pl-[356px]"
-              : "lg:pl-[56px]"
-          }`}
+          className="absolute inset-0"
+          style={{
+            paddingLeft:
+              isSidebarVisible || isMobileSidebarOpen
+                ? `${56 + sidebarPanelWidth}px`
+                : "56px",
+          }}
         >
           <div className="h-full min-h-[500px]">
             <DiagramCanvas
