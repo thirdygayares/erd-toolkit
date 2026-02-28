@@ -96,10 +96,10 @@ class StubSchemaEditorService:
             "relationship_id": relationship_id,
             "diagram_id": diagram_id,
             "name": payload.name or "fk_users_company",
-            "from_table_id": uuid4(),
-            "from_column_id": uuid4(),
-            "to_table_id": uuid4(),
-            "to_column_id": uuid4(),
+            "from_table_id": payload.from_table_id or uuid4(),
+            "from_column_id": payload.from_column_id or uuid4(),
+            "to_table_id": payload.to_table_id or uuid4(),
+            "to_column_id": payload.to_column_id or uuid4(),
             "cardinality_from": payload.cardinality_from or "N",
             "cardinality_to": payload.cardinality_to or "1",
             "on_update_action": payload.on_update_action or "NO ACTION",
@@ -171,3 +171,30 @@ def test_delete_relationship(client, app):
 
     assert response.status_code == 200
     assert response.json()["name"] == "fk_user_company"
+
+
+def test_update_relationship_reconnect(client, app):
+    app.dependency_overrides[get_schema_editor_service] = lambda: StubSchemaEditorService()
+    from_table_id = str(uuid4())
+    from_column_id = str(uuid4())
+    to_table_id = str(uuid4())
+    to_column_id = str(uuid4())
+
+    response = client.patch(
+        f"/api/v1/diagrams/{uuid4()}/relationships/{uuid4()}",
+        json={
+            "from_table_id": from_table_id,
+            "from_column_id": from_column_id,
+            "to_table_id": to_table_id,
+            "to_column_id": to_column_id,
+            "cardinality_from": "1",
+            "cardinality_to": "N",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["from_table_id"] == from_table_id
+    assert body["to_table_id"] == to_table_id
+    assert body["cardinality_from"] == "1"
+    assert body["cardinality_to"] == "N"

@@ -161,6 +161,10 @@ export interface RelationshipCreateRequest {
 
 export interface RelationshipUpdateRequest {
   name?: string | null;
+  from_table_id?: string | null;
+  from_column_id?: string | null;
+  to_table_id?: string | null;
+  to_column_id?: string | null;
   cardinality_from?: "1" | "N" | null;
   cardinality_to?: "1" | "N" | null;
   on_update_action?: string | null;
