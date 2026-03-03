@@ -124,6 +124,27 @@ class SchemaEditorService:
                     raise NotFoundError("column not found")
                 return row
 
+    def delete_column(
+        self,
+        table_id: str,
+        column_id: str,
+        ctx: RequestContext,
+    ) -> dict:
+        with self.db.connection() as conn:
+            self.db.apply_request_context(conn, ctx)
+            with conn.cursor() as cur:
+                cur.execute(
+                    sql.DELETE_COLUMN,
+                    {
+                        "table_id": table_id,
+                        "column_id": column_id,
+                    },
+                )
+                row = cur.fetchone()
+                if not row:
+                    raise NotFoundError("column not found")
+                return row
+
     def create_relationship(
         self,
         diagram_id: str,

@@ -2,6 +2,8 @@
 
 import {
   Activity,
+  ArrowDown,
+  ArrowUp,
   Cable,
   ChevronDown,
   Database,
@@ -36,6 +38,7 @@ import { useUpdateProjectVisibilityMutation } from "@/hooks/project/useUpdatePro
 import { useCreateColumnMutation } from "@/hooks/schemaEditor/useCreateColumnMutation";
 import { useCreateRelationshipMutation } from "@/hooks/schemaEditor/useCreateRelationshipMutation";
 import { useCreateTableMutation } from "@/hooks/schemaEditor/useCreateTableMutation";
+import { useDeleteColumnMutation } from "@/hooks/schemaEditor/useDeleteColumnMutation";
 import { useDeleteRelationshipMutation } from "@/hooks/schemaEditor/useDeleteRelationshipMutation";
 import { useUpdateColumnMutation } from "@/hooks/schemaEditor/useUpdateColumnMutation";
 import { useUpdateRelationshipMutation } from "@/hooks/schemaEditor/useUpdateRelationshipMutation";
@@ -81,6 +84,8 @@ const postgresTypeOptions = [
   "bytea",
 ];
 
+const dialogFieldIdPrefix = "dialog-field-";
+
 interface DashboardProps {
   projectId: string;
   initialShareSlug?: string | null;
@@ -96,6 +101,20 @@ interface TableDialogState {
   colorHex: string;
   posX: number;
   posY: number;
+}
+
+interface TableDialogFieldDraft {
+  localId: string;
+  columnId: string | null;
+  columnName: string;
+  dataType: string;
+  isNullable: boolean;
+  isPrimaryKey: boolean;
+  isUnique: boolean;
+}
+
+interface NormalizedTableDialogField extends TableDialogFieldDraft {
+  ordinalPosition: number;
 }
 
 interface FieldAttributesDraft {
@@ -132,6 +151,22 @@ function normalizeTableName(name: string, fallback: string) {
     .replace(/[^a-z0-9_]+/g, "_")
     .replace(/^_+|_+$/g, "");
   return normalized || fallback;
+}
+
+function makeDialogFieldId() {
+  return `${dialogFieldIdPrefix}${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function mapColumnToDialogField(column: ColumnResponse): TableDialogFieldDraft {
+  return {
+    localId: `column-${column.column_id}`,
+    columnId: column.column_id,
+    columnName: column.column_name,
+    dataType: column.data_type,
+    isNullable: column.is_nullable,
+    isPrimaryKey: column.is_primary_key,
+    isUnique: column.is_unique,
+  };
 }
 
 function randomColor() {
@@ -229,6 +264,12 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
     posX: 120,
     posY: 120,
   });
+  const [tableDialogFields, setTableDialogFields] = useState<
+    TableDialogFieldDraft[]
+  >([]);
+  const [tableDialogOriginalColumns, setTableDialogOriginalColumns] = useState<
+    ColumnResponse[]
+  >([]);
 
   const [fieldAttributesDraft, setFieldAttributesDraft] =
     useState<FieldAttributesDraft | null>(null);
@@ -284,6 +325,7 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
   const createTableMutation = useCreateTableMutation();
   const updateTableMutation = useUpdateTableMutation();
   const createColumnMutation = useCreateColumnMutation();
+  const deleteColumnMutation = useDeleteColumnMutation();
   const updateColumnMutation = useUpdateColumnMutation();
   const createRelationshipMutation = useCreateRelationshipMutation();
   const updateRelationshipMutation = useUpdateRelationshipMutation();
@@ -354,6 +396,7 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
     createTableMutation.isPending ||
     updateTableMutation.isPending ||
     createColumnMutation.isPending ||
+    deleteColumnMutation.isPending ||
     updateColumnMutation.isPending ||
     createRelationshipMutation.isPending ||
     updateRelationshipMutation.isPending ||
@@ -611,6 +654,18 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
       posX: position?.x ?? 100 + (nextIndex % 4) * 320,
       posY: position?.y ?? 80 + Math.floor(nextIndex / 4) * 240,
     });
+    setTableDialogOriginalColumns([]);
+    setTableDialogFields([
+      {
+        localId: makeDialogFieldId(),
+        columnId: null,
+        columnName: "id",
+        dataType: "uuid",
+        isNullable: false,
+        isPrimaryKey: true,
+        isUnique: true,
+      },
+    ]);
   }
 
   function openEditTableDialog(tableId: string) {
@@ -630,6 +685,205 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
       posX: table.pos_x,
       posY: table.pos_y,
     });
+    const orderedColumns = [...table.columns].sort(
+      (left, right) => left.ordinal_position - right.ordinal_position,
+    );
+    setTableDialogOriginalColumns(orderedColumns);
+    setTableDialogFields(orderedColumns.map(mapColumnToDialogField));
+  }
+
+  function closeTableDialog() {
+    setTableDialog((current) => ({ ...current, open: false }));
+    setTableDialogOriginalColumns([]);
+    setTableDialogFields([]);
+  }
+
+  function updateTableDialogField(
+    localId: string,
+    patch: Partial<TableDialogFieldDraft>,
+  ) {
+    setTableDialogFields((current) =>
+      current.map((field) =>
+        field.localId === localId ? { ...field, ...patch } : field,
+      ),
+    );
+  }
+
+  function addTableDialogField() {
+    setTableDialogFields((current) => [
+      ...current,
+      {
+        localId: makeDialogFieldId(),
+        columnId: null,
+        columnName: "",
+        dataType: "text",
+        isNullable: true,
+        isPrimaryKey: false,
+        isUnique: false,
+      },
+    ]);
+  }
+
+  function removeTableDialogField(localId: string) {
+    setTableDialogFields((current) =>
+      current.filter((field) => field.localId !== localId),
+    );
+  }
+
+  function moveTableDialogField(localId: string, direction: "up" | "down") {
+    setTableDialogFields((current) => {
+      const currentIndex = current.findIndex(
+        (field) => field.localId === localId,
+      );
+      if (currentIndex < 0) {
+        return current;
+      }
+
+      const nextIndex =
+        direction === "up" ? currentIndex - 1 : currentIndex + 1;
+      if (nextIndex < 0 || nextIndex >= current.length) {
+        return current;
+      }
+
+      const next = [...current];
+      const [moved] = next.splice(currentIndex, 1);
+      next.splice(nextIndex, 0, moved);
+      return next;
+    });
+  }
+
+  function normalizeTableDialogFields(): NormalizedTableDialogField[] | null {
+    const normalizedFields: NormalizedTableDialogField[] =
+      tableDialogFields.map((field, index) => ({
+        ...field,
+        columnName: field.columnName.trim(),
+        dataType: field.dataType.trim() || "text",
+        ordinalPosition: index + 1,
+      }));
+
+    const emptyField = normalizedFields.find((field) => !field.columnName);
+    if (emptyField) {
+      setStatusMessage("Each field needs a column name.");
+      return null;
+    }
+
+    const loweredNames = normalizedFields.map((field) =>
+      field.columnName.toLowerCase(),
+    );
+    if (new Set(loweredNames).size !== loweredNames.length) {
+      setStatusMessage("Field names must be unique inside the table.");
+      return null;
+    }
+
+    return normalizedFields;
+  }
+
+  async function syncTableDialogFields(
+    tableId: string,
+    fields: NormalizedTableDialogField[],
+    originalColumns: ColumnResponse[],
+  ) {
+    if (!diagramId) {
+      return;
+    }
+
+    const existingColumnsById = new Map(
+      originalColumns.map((column) => [column.column_id, column]),
+    );
+    const retainedExistingColumnIds = new Set(
+      fields.flatMap((field) =>
+        field.columnId && existingColumnsById.has(field.columnId)
+          ? [field.columnId]
+          : [],
+      ),
+    );
+
+    let tempOrdinal = fields.length + originalColumns.length + 100;
+    for (const field of fields) {
+      if (!field.columnId || !existingColumnsById.has(field.columnId)) {
+        continue;
+      }
+
+      await updateColumnMutation.mutateAsync({
+        diagramId,
+        tableId,
+        columnId: field.columnId,
+        payload: {
+          ordinal_position: tempOrdinal,
+        },
+      });
+      tempOrdinal += 1;
+    }
+
+    for (const column of originalColumns) {
+      if (retainedExistingColumnIds.has(column.column_id)) {
+        continue;
+      }
+      await deleteColumnMutation.mutateAsync({
+        diagramId,
+        tableId,
+        columnId: column.column_id,
+      });
+    }
+
+    for (const field of fields) {
+      if (field.columnId && existingColumnsById.has(field.columnId)) {
+        continue;
+      }
+
+      await createColumnMutation.mutateAsync({
+        diagramId,
+        tableId,
+        payload: {
+          column_name: field.columnName,
+          ordinal_position: field.ordinalPosition,
+          data_type: field.dataType,
+          is_nullable: field.isNullable,
+          is_primary_key: field.isPrimaryKey,
+          is_unique: field.isUnique,
+        },
+      });
+    }
+
+    for (const field of fields) {
+      if (!field.columnId || !existingColumnsById.has(field.columnId)) {
+        continue;
+      }
+
+      const existingColumn = existingColumnsById.get(field.columnId);
+      if (!existingColumn) {
+        continue;
+      }
+
+      const patch: Parameters<
+        typeof updateColumnMutation.mutateAsync
+      >[0]["payload"] = {};
+
+      patch.ordinal_position = field.ordinalPosition;
+
+      if (existingColumn.column_name !== field.columnName) {
+        patch.column_name = field.columnName;
+      }
+      if (existingColumn.data_type !== field.dataType) {
+        patch.data_type = field.dataType;
+      }
+      if (existingColumn.is_nullable !== field.isNullable) {
+        patch.is_nullable = field.isNullable;
+      }
+      if (existingColumn.is_primary_key !== field.isPrimaryKey) {
+        patch.is_primary_key = field.isPrimaryKey;
+      }
+      if (existingColumn.is_unique !== field.isUnique) {
+        patch.is_unique = field.isUnique;
+      }
+
+      await updateColumnMutation.mutateAsync({
+        diagramId,
+        tableId,
+        columnId: field.columnId,
+        payload: patch,
+      });
+    }
   }
 
   async function saveTableDialog() {
@@ -637,11 +891,19 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
       return;
     }
 
-    if (tableDialog.mode === "create") {
-      const tableName = normalizeTableName(tableDialog.tableName, "table_new");
-      const displayName = tableDialog.displayName.trim() || tableName;
+    const normalizedFields = normalizeTableDialogFields();
+    if (!normalizedFields) {
+      return;
+    }
 
-      try {
+    try {
+      if (tableDialog.mode === "create") {
+        const tableName = normalizeTableName(
+          tableDialog.tableName,
+          "table_new",
+        );
+        const displayName = tableDialog.displayName.trim() || tableName;
+
         const createdTable = await createTableMutation.mutateAsync({
           diagramId,
           payload: {
@@ -653,15 +915,17 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
             color_hex: tableDialog.colorHex,
           },
         });
+
+        await syncTableDialogFields(
+          createdTable.table_id,
+          normalizedFields,
+          [],
+        );
         setSelectedTableId(createdTable.table_id);
-        setStatusMessage(`Table created: ${createdTable.table_name}`);
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Unable to create table.";
-        setStatusMessage(message);
-      }
-    } else if (tableDialog.tableId) {
-      try {
+        setStatusMessage(
+          `Table created: ${createdTable.table_name} (${normalizedFields.length} field${normalizedFields.length === 1 ? "" : "s"}).`,
+        );
+      } else if (tableDialog.tableId) {
         await updateTableMutation.mutateAsync({
           diagramId,
           tableId: tableDialog.tableId,
@@ -671,15 +935,21 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
             color_hex: tableDialog.colorHex,
           },
         });
-        setStatusMessage("Table updated.");
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Unable to update table.";
-        setStatusMessage(message);
-      }
-    }
 
-    setTableDialog((current) => ({ ...current, open: false }));
+        await syncTableDialogFields(
+          tableDialog.tableId,
+          normalizedFields,
+          tableDialogOriginalColumns,
+        );
+        setStatusMessage("Table updated with fields.");
+      }
+
+      closeTableDialog();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to save table.";
+      setStatusMessage(message);
+    }
   }
 
   async function deleteTable(tableId: string) {
@@ -1723,7 +1993,6 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
 
                             {isExpanded ? (
                               <div className="space-y-1 border-t border-slate-200 bg-white p-1.5 flex flex-col">
-
                                 <div className="mt-1 pt-1 border-t border-slate-200">
                                   <div className="text-xs font-semibold text-slate-600 mb-1">
                                     Fields
@@ -1732,121 +2001,134 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
                                   <div className="overflow-x-auto">
                                     <div className="space-y-1 min-w-min">
                                       {table.columns.map((column) => {
-                                    const draftName =
-                                      columnNameDrafts[column.column_id] ??
-                                      column.column_name;
-                                    const nullableLabel = column.is_nullable
-                                      ? "?"
-                                      : "N";
+                                        const draftName =
+                                          columnNameDrafts[column.column_id] ??
+                                          column.column_name;
+                                        const nullableLabel = column.is_nullable
+                                          ? "?"
+                                          : "N";
 
-                                    return (
-                                      <div
-                                        key={column.column_id}
-                                        className="grid grid-cols-[1fr_100px_32px_32px_32px] gap-1"
-                                      >
-                                        <input
-                                          value={draftName}
-                                          onChange={(event) =>
-                                            setColumnNameDrafts((current) => ({
-                                              ...current,
-                                              [column.column_id]:
-                                                event.target.value,
-                                            }))
-                                          }
-                                          onBlur={() => {
-                                            const nextValue = (
-                                              columnNameDrafts[
-                                                column.column_id
-                                              ] ?? ""
-                                            ).trim();
-                                            if (
-                                              nextValue &&
-                                              nextValue !== column.column_name
-                                            ) {
-                                              void updateColumn(
-                                                table.table_id,
-                                                column.column_id,
-                                                {
-                                                  column_name: nextValue,
-                                                },
-                                              );
-                                            }
-                                          }}
-                                          className="rounded-md border border-slate-300 px-2 py-0.5 text-xs outline-none focus:border-blue-500"
-                                        />
+                                        return (
+                                          <div
+                                            key={column.column_id}
+                                            className="grid grid-cols-[1fr_100px_32px_32px_32px] gap-1"
+                                          >
+                                            <input
+                                              value={draftName}
+                                              onChange={(event) =>
+                                                setColumnNameDrafts(
+                                                  (current) => ({
+                                                    ...current,
+                                                    [column.column_id]:
+                                                      event.target.value,
+                                                  }),
+                                                )
+                                              }
+                                              onBlur={() => {
+                                                const nextValue = (
+                                                  columnNameDrafts[
+                                                    column.column_id
+                                                  ] ?? ""
+                                                ).trim();
+                                                if (
+                                                  nextValue &&
+                                                  nextValue !==
+                                                    column.column_name
+                                                ) {
+                                                  void updateColumn(
+                                                    table.table_id,
+                                                    column.column_id,
+                                                    {
+                                                      column_name: nextValue,
+                                                    },
+                                                  );
+                                                }
+                                              }}
+                                              className="rounded-md border border-slate-300 px-2 py-0.5 text-xs outline-none focus:border-blue-500"
+                                            />
 
-                                        <select
-                                          value={column.data_type}
-                                          onChange={(event) => {
-                                            void updateColumn(
-                                              table.table_id,
-                                              column.column_id,
-                                              {
-                                                data_type: event.target.value,
-                                              },
-                                            );
-                                          }}
-                                          className="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-xs outline-none focus:border-blue-500"
-                                        >
-                                          {postgresTypeOptions.map((option) => (
-                                            <option key={option} value={option}>
-                                              {option}
-                                            </option>
-                                          ))}
-                                        </select>
+                                            <select
+                                              value={column.data_type}
+                                              onChange={(event) => {
+                                                void updateColumn(
+                                                  table.table_id,
+                                                  column.column_id,
+                                                  {
+                                                    data_type:
+                                                      event.target.value,
+                                                  },
+                                                );
+                                              }}
+                                              className="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-xs outline-none focus:border-blue-500"
+                                            >
+                                              {postgresTypeOptions.map(
+                                                (option) => (
+                                                  <option
+                                                    key={option}
+                                                    value={option}
+                                                  >
+                                                    {option}
+                                                  </option>
+                                                ),
+                                              )}
+                                            </select>
 
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            void updateColumn(
-                                              table.table_id,
-                                              column.column_id,
-                                              {
-                                                is_nullable: !column.is_nullable,
-                                              },
-                                            )
-                                          }
-                                          className="rounded-md border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-50"
-                                          title="Toggle nullable"
-                                        >
-                                          {nullableLabel}
-                                        </button>
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                void updateColumn(
+                                                  table.table_id,
+                                                  column.column_id,
+                                                  {
+                                                    is_nullable:
+                                                      !column.is_nullable,
+                                                  },
+                                                )
+                                              }
+                                              className="rounded-md border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                                              title="Toggle nullable"
+                                            >
+                                              {nullableLabel}
+                                            </button>
 
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            void updateColumn(
-                                              table.table_id,
-                                              column.column_id,
-                                              {
-                                                is_primary_key:
-                                                  !column.is_primary_key,
-                                              },
-                                            )
-                                          }
-                                          className={`rounded-md border border-slate-300 p-1 ${
-                                            column.is_primary_key
-                                              ? "bg-amber-50 text-amber-600"
-                                              : "text-slate-500 hover:bg-slate-50"
-                                          }`}
-                                          title="Toggle primary key"
-                                        >
-                                          <KeyRound className="mx-auto h-3.5 w-3.5" />
-                                        </button>
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                void updateColumn(
+                                                  table.table_id,
+                                                  column.column_id,
+                                                  {
+                                                    is_primary_key:
+                                                      !column.is_primary_key,
+                                                  },
+                                                )
+                                              }
+                                              className={`rounded-md border border-slate-300 p-1 ${
+                                                column.is_primary_key
+                                                  ? "bg-amber-50 text-amber-600"
+                                                  : "text-slate-500 hover:bg-slate-50"
+                                              }`}
+                                              title="Toggle primary key"
+                                            >
+                                              <KeyRound className="mx-auto h-3.5 w-3.5" />
+                                            </button>
 
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            openFieldAttributes(table, column)
-                                          }
-                                          className="rounded-md border border-slate-300 p-1 text-slate-500 hover:bg-slate-50 text-xs font-bold"
-                                          title="Field attributes"
-                                        >
-                                          ...
-                                        </button>
-                                      </div>
-                                    );
-                                  })}
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                openFieldAttributes(
+                                                  table,
+                                                  column,
+                                                )
+                                              }
+                                              className="rounded-md border border-slate-300 p-1 text-slate-500 hover:bg-slate-50 text-xs font-bold"
+                                              title="Field attributes"
+                                            >
+                                              ...
+                                            </button>
+                                          </div>
+                                        );
+                                      })}
                                     </div>
                                     <div className="grid grid-cols-[1fr_100px_auto_auto] gap-1 pt-1 min-w-min overflow-x-auto">
                                       <input
@@ -1859,7 +2141,9 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
                                         onKeyDown={(event) => {
                                           if (event.key === "Enter") {
                                             event.preventDefault();
-                                            void addColumnToTable(table.table_id);
+                                            void addColumnToTable(
+                                              table.table_id,
+                                            );
                                           }
                                         }}
                                         onBlur={() => {
@@ -1906,11 +2190,14 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
                                         Comments
                                       </div>
                                       <textarea
-                                        value={tableComments[table.table_id] ?? ""}
+                                        value={
+                                          tableComments[table.table_id] ?? ""
+                                        }
                                         onChange={(event) =>
                                           setTableComments((current) => ({
                                             ...current,
-                                            [table.table_id]: event.target.value,
+                                            [table.table_id]:
+                                              event.target.value,
                                           }))
                                         }
                                         placeholder="No comments"
@@ -1918,7 +2205,6 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
                                       />
                                     </div>
                                   </div>
-
                                 </div>
                               </div>
                             ) : null}
@@ -2128,23 +2414,21 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
 
       {tableDialog.open ? (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/30 p-4">
-          <div className="w-full max-w-lg rounded-xl border border-slate-300 bg-white p-4 shadow-xl">
+          <div className="w-full max-w-3xl rounded-xl border border-slate-300 bg-white p-4 shadow-xl">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-lg font-semibold">
                 {tableDialog.mode === "create" ? "New Table" : "Edit Table"}
               </h3>
               <button
                 type="button"
-                onClick={() =>
-                  setTableDialog((current) => ({ ...current, open: false }))
-                }
+                onClick={closeTableDialog}
                 className="rounded p-1 text-slate-500 hover:bg-slate-100"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            <div className="space-y-3">
+            <div className="max-h-[70vh] space-y-3 overflow-y-auto pr-1">
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <p className="mb-1 block text-xs font-semibold text-slate-600">
@@ -2221,14 +2505,145 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
                   ))}
                 </div>
               </div>
+
+              <div>
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="block text-xs font-semibold text-slate-600">
+                    Fields
+                  </p>
+                  <button
+                    type="button"
+                    onClick={addTableDialogField}
+                    className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    + Add field
+                  </button>
+                </div>
+
+                {tableDialogFields.length === 0 ? (
+                  <div className="rounded-md border border-dashed border-slate-300 px-3 py-2 text-xs text-slate-500">
+                    No fields yet. Add at least one field.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {tableDialogFields.map((field, index) => (
+                      <div
+                        key={field.localId}
+                        className="grid grid-cols-[minmax(0,1fr)_132px_44px_44px_auto] items-center gap-2"
+                      >
+                        <input
+                          value={field.columnName}
+                          onChange={(event) =>
+                            updateTableDialogField(field.localId, {
+                              columnName: event.target.value,
+                            })
+                          }
+                          placeholder="column_name"
+                          className="w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-sm outline-none focus:border-blue-500"
+                        />
+                        <select
+                          value={field.dataType}
+                          onChange={(event) =>
+                            updateTableDialogField(field.localId, {
+                              dataType: event.target.value,
+                            })
+                          }
+                          className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none focus:border-blue-500"
+                        >
+                          {customTypeOptions.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateTableDialogField(field.localId, {
+                              isNullable: !field.isNullable,
+                            })
+                          }
+                          className="rounded-md border border-slate-300 bg-slate-100 px-1 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-200"
+                          title={
+                            field.isNullable
+                              ? "Nullable column"
+                              : "NOT NULL column"
+                          }
+                        >
+                          {field.isNullable ? "?" : "N"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateTableDialogField(field.localId, {
+                              isPrimaryKey: !field.isPrimaryKey,
+                              isUnique: !field.isPrimaryKey
+                                ? true
+                                : field.isUnique,
+                              isNullable: !field.isPrimaryKey
+                                ? false
+                                : field.isNullable,
+                            })
+                          }
+                          className={`rounded-md border px-1 py-1 ${
+                            field.isPrimaryKey
+                              ? "border-amber-400 bg-amber-100 text-amber-700"
+                              : "border-slate-300 bg-slate-100 text-slate-600 hover:bg-slate-200"
+                          }`}
+                          title={
+                            field.isPrimaryKey
+                              ? "Primary key"
+                              : "Mark as primary key"
+                          }
+                        >
+                          <KeyRound className="mx-auto h-3.5 w-3.5" />
+                        </button>
+
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              moveTableDialogField(field.localId, "up")
+                            }
+                            disabled={index === 0}
+                            className="rounded-md border border-slate-300 p-1 text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                            title="Move up"
+                          >
+                            <ArrowUp className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              moveTableDialogField(field.localId, "down")
+                            }
+                            disabled={index === tableDialogFields.length - 1}
+                            className="rounded-md border border-slate-300 p-1 text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                            title="Move down"
+                          >
+                            <ArrowDown className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              removeTableDialogField(field.localId)
+                            }
+                            className="rounded-md border border-red-200 p-1 text-red-600 hover:bg-red-50"
+                            title="Remove field"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="mt-4 flex justify-end gap-2">
               <button
                 type="button"
-                onClick={() =>
-                  setTableDialog((current) => ({ ...current, open: false }))
-                }
+                onClick={closeTableDialog}
                 className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold hover:bg-slate-50"
               >
                 Cancel

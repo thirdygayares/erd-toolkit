@@ -81,6 +81,21 @@ def update_column(
     return ColumnMutationResponse(**service.update_column(table_id, column_id, payload, ctx))
 
 
+@router.delete(
+    "/diagrams/{diagram_id}/tables/{table_id}/columns/{column_id}",
+    response_model=ColumnMutationResponse,
+)
+def delete_column(
+    diagram_id: str,
+    table_id: str,
+    column_id: str,
+    ctx: RequestContext = Depends(get_request_context),
+    service: SchemaEditorService = Depends(get_schema_editor_service),
+) -> ColumnMutationResponse:
+    del diagram_id
+    return ColumnMutationResponse(**service.delete_column(table_id, column_id, ctx))
+
+
 @router.post(
     "/diagrams/{diagram_id}/relationships",
     response_model=RelationshipMutationResponse,
