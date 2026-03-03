@@ -13,7 +13,7 @@ from api import register_routers
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(title=settings.app_name)
-    origins = settings.cors_origin_list or ["http://localhost:3000"]
+    origins = settings.cors_origin_list or ["http://localhost:3000", "http://localhost:3001"]
     allow_all_origins = "*" in origins
 
     app.add_middleware(

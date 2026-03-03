@@ -73,6 +73,22 @@ class StubSchemaEditorService:
             "updated_at": datetime.now(timezone.utc),
         }
 
+    def delete_column(self, table_id, column_id, ctx):
+        return {
+            "column_id": column_id,
+            "table_id": table_id,
+            "column_name": "legacy_column",
+            "ordinal_position": 2,
+            "data_type": "text",
+            "udt_name": None,
+            "is_nullable": True,
+            "default_sql": None,
+            "is_primary_key": False,
+            "is_unique": False,
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
+        }
+
     def create_relationship(self, diagram_id, payload, ctx):
         return {
             "relationship_id": uuid4(),
@@ -160,6 +176,17 @@ def test_create_relationship(client, app):
 
     assert response.status_code == 201
     assert response.json()["name"] == "fk_user_company"
+
+
+def test_delete_column(client, app):
+    app.dependency_overrides[get_schema_editor_service] = lambda: StubSchemaEditorService()
+
+    response = client.delete(
+        f"/api/v1/diagrams/{uuid4()}/tables/{uuid4()}/columns/{uuid4()}",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["column_name"] == "legacy_column"
 
 
 def test_delete_relationship(client, app):

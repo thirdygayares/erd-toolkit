@@ -60,6 +60,17 @@ export class SchemaEditorService {
     return data;
   }
 
+  async deleteColumn(
+    diagramId: string,
+    tableId: string,
+    columnId: string,
+  ): Promise<ColumnMutationResponse> {
+    const { data } = await axiosInstance.delete<ColumnMutationResponse>(
+      `/diagrams/${diagramId}/tables/${tableId}/columns/${columnId}`,
+    );
+    return data;
+  }
+
   async createRelationship(
     diagramId: string,
     payload: RelationshipCreateRequest,

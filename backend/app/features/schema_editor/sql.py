@@ -55,6 +55,14 @@ FROM api.fn_column_update(
 );
 """
 
+DELETE_COLUMN = """
+SELECT *
+FROM api.fn_column_delete(
+    p_table_id => %(table_id)s::uuid,
+    p_column_id => %(column_id)s::uuid
+);
+"""
+
 INSERT_RELATIONSHIP = """
 SELECT *
 FROM api.fn_relationship_create(
