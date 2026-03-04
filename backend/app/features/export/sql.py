@@ -22,14 +22,14 @@ SELECT api.fn_export_job_mark_failed(
 
 GET_TABLES = """
 SELECT *
-FROM api.fn_export_get_tables(
+FROM api.fn_export_get_tables_v2(
     p_diagram_id => %(diagram_id)s::uuid
 );
 """
 
 GET_COLUMNS = """
 SELECT *
-FROM api.fn_export_get_columns(
+FROM api.fn_export_get_columns_v2(
     p_table_id => %(table_id)s::uuid
 );
 """
