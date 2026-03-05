@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+from app.core.errors import ValidationError
 from app.features.export.services import ExportService
 
 
@@ -418,3 +419,113 @@ def test_generate_sql_quotes_only_required_identifiers():
     assert statement_count == 1
     assert "CREATE TABLE IF NOT EXISTS public.table_2" in sql_output
     assert '"23" text' in sql_output
+
+
+def test_generate_sql_filters_source_schemas_when_export_all_is_false():
+    public_table = str(uuid4())
+    sales_table = str(uuid4())
+    public_col = str(uuid4())
+    sales_col = str(uuid4())
+
+    tables = [
+        {
+            "table_id": public_table,
+            "schema_name": "public",
+            "table_name": "users",
+            "display_name": "users",
+        },
+        {
+            "table_id": sales_table,
+            "schema_name": "sales",
+            "table_name": "orders",
+            "display_name": "orders",
+        },
+    ]
+    columns_by_table = {
+        public_table: [
+            {
+                "column_id": public_col,
+                "table_id": public_table,
+                "column_name": "id",
+                "data_type": "uuid",
+                "udt_name": None,
+                "default_sql": None,
+                "is_nullable": False,
+                "is_primary_key": True,
+                "is_unique": True,
+            }
+        ],
+        sales_table: [
+            {
+                "column_id": sales_col,
+                "table_id": sales_table,
+                "column_name": "id",
+                "data_type": "uuid",
+                "udt_name": None,
+                "default_sql": None,
+                "is_nullable": False,
+                "is_primary_key": True,
+                "is_unique": True,
+            }
+        ],
+    }
+
+    service = ExportService(db=None)  # type: ignore[arg-type]
+    conn = _FakeConnection(tables, [], columns_by_table)
+
+    sql_output, statement_count = service._generate_sql(
+        conn,
+        str(uuid4()),
+        "public",
+        source_schema_names=["public"],
+        export_all_schemas=False,
+    )
+
+    assert statement_count == 1
+    assert "CREATE TABLE IF NOT EXISTS public.users" in sql_output
+    assert "CREATE TABLE IF NOT EXISTS public.orders" not in sql_output
+
+
+def test_generate_sql_raises_for_unknown_source_schema_selection():
+    table_1 = str(uuid4())
+    col_1 = str(uuid4())
+
+    tables = [
+        {
+            "table_id": table_1,
+            "schema_name": "public",
+            "table_name": "users",
+            "display_name": "users",
+        }
+    ]
+    columns_by_table = {
+        table_1: [
+            {
+                "column_id": col_1,
+                "table_id": table_1,
+                "column_name": "id",
+                "data_type": "uuid",
+                "udt_name": None,
+                "default_sql": None,
+                "is_nullable": False,
+                "is_primary_key": True,
+                "is_unique": True,
+            }
+        ]
+    }
+
+    service = ExportService(db=None)  # type: ignore[arg-type]
+    conn = _FakeConnection(tables, [], columns_by_table)
+
+    try:
+        service._generate_sql(
+            conn,
+            str(uuid4()),
+            "public",
+            source_schema_names=["analytics"],
+            export_all_schemas=False,
+        )
+    except ValidationError as exc:
+        assert "Unknown source schema selection" in str(exc)
+    else:
+        raise AssertionError("expected ValidationError for unknown source schema")

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections import defaultdict
+import re
 
 import psycopg
 from psycopg.rows import dict_row
@@ -8,14 +8,70 @@ from psycopg.types.json import Jsonb
 
 from app.core.context import RequestContext
 from app.core.db import Database
-from app.core.errors import NotFoundError
+from app.core.errors import NotFoundError, ValidationError
 from app.features.introspection import sql
-from app.features.introspection.schemas import ImportPostgresRequest
+from app.features.introspection.schemas import (
+    ImportPostgresRequest,
+    PostgresConnectionRequest,
+)
 
 
 class IntrospectionService:
+    _FATAL_RE = re.compile(r"FATAL:\s*(.+)", re.IGNORECASE)
+
     def __init__(self, db: Database) -> None:
         self.db = db
+
+    def test_postgres_connection(
+        self,
+        diagram_id: str,
+        payload: PostgresConnectionRequest,
+        ctx: RequestContext,
+    ) -> dict:
+        with self.db.connection() as conn:
+            self.db.apply_request_context(conn, ctx)
+            self._ensure_diagram_exists(conn, diagram_id)
+
+        with self._connect_source(payload) as source_conn:
+            with source_conn.cursor() as src_cur:
+                src_cur.execute(
+                    """
+                    SELECT
+                      current_database() AS database_name,
+                      current_user AS current_user,
+                      version() AS server_version;
+                    """
+                )
+                row = src_cur.fetchone()
+
+        return {
+            "status": "ok",
+            "database_name": row["database_name"],
+            "current_user": row["current_user"],
+            "server_version": row["server_version"],
+        }
+
+    def list_postgres_schemas(
+        self,
+        diagram_id: str,
+        payload: PostgresConnectionRequest,
+        ctx: RequestContext,
+    ) -> dict:
+        with self.db.connection() as conn:
+            self.db.apply_request_context(conn, ctx)
+            self._ensure_diagram_exists(conn, diagram_id)
+
+        with self._connect_source(payload) as source_conn:
+            with source_conn.cursor() as src_cur:
+                schemas = self._fetch_available_schemas(src_cur)
+
+        default_schema = "public" if "public" in schemas else (schemas[0] if schemas else "public")
+
+        return {
+            "status": "ok",
+            "schemas": schemas,
+            "default_schema": default_schema,
+        }
 
     def import_postgres(
         self,
@@ -25,12 +81,8 @@ class IntrospectionService:
     ) -> dict:
         with self.db.connection() as conn:
             self.db.apply_request_context(conn, ctx)
+            diagram = self._ensure_diagram_exists(conn, diagram_id)
             with conn.cursor() as cur:
-                cur.execute(sql.GET_DIAGRAM_WORKSPACE, {"diagram_id": diagram_id})
-                diagram = cur.fetchone()
-                if not diagram:
-                    raise NotFoundError("diagram not found")
-
                 connection_name = payload.connection_name or f"{payload.host}:{payload.port}/{payload.database_name}"
                 cur.execute(
                     sql.UPSERT_DB_CONNECTION,
@@ -75,6 +127,10 @@ class IntrospectionService:
                             "error_text": str(exc),
                         },
                     )
+                if isinstance(exc, ValidationError):
+                    raise
+                if isinstance(exc, psycopg.Error):
+                    raise ValidationError(self._friendly_source_error(exc)) from exc
                 raise
 
         return {
@@ -90,56 +146,73 @@ class IntrospectionService:
         diagram_id: str,
         payload: ImportPostgresRequest,
     ) -> dict:
-        source_dsn = (
-            f"host={payload.host} port={payload.port} dbname={payload.database_name} "
-            f"user={payload.username} password={payload.password} sslmode={payload.ssl_mode}"
-        )
-
-        with psycopg.connect(source_dsn, row_factory=dict_row) as source_conn:
+        with self._connect_source(payload) as source_conn:
             with source_conn.cursor() as src_cur:
+                available_schemas = self._fetch_available_schemas(src_cur)
+                schema_names = self._resolve_schema_names(payload, available_schemas)
+
+                if not schema_names:
+                    raise ValidationError("No schemas selected for import.")
+
                 src_cur.execute(
                     """
                     SELECT table_schema, table_name
                     FROM information_schema.tables
                     WHERE table_type = 'BASE TABLE'
-                      AND table_schema = %s
-                    ORDER BY table_name;
+                      AND table_schema = ANY(%s)
+                    ORDER BY table_schema, table_name;
                     """,
-                    (payload.schema_name,),
+                    (schema_names,),
                 )
                 source_tables = src_cur.fetchall()
 
                 src_cur.execute(
                     """
-                    SELECT table_name, column_name, ordinal_position, data_type,
+                    SELECT table_schema, table_name, column_name, ordinal_position, data_type,
                            udt_name, is_nullable, column_default
                     FROM information_schema.columns
-                    WHERE table_schema = %s
-                    ORDER BY table_name, ordinal_position;
+                    WHERE table_schema = ANY(%s)
+                    ORDER BY table_schema, table_name, ordinal_position;
                     """,
-                    (payload.schema_name,),
+                    (schema_names,),
                 )
                 source_columns = src_cur.fetchall()
 
                 src_cur.execute(
                     """
-                    SELECT tc.table_name, kcu.column_name
+                    SELECT tc.table_schema, tc.table_name, kcu.column_name
                     FROM information_schema.table_constraints tc
                     JOIN information_schema.key_column_usage kcu
                       ON tc.constraint_name = kcu.constraint_name
                      AND tc.table_schema = kcu.table_schema
                     WHERE tc.constraint_type = 'PRIMARY KEY'
-                      AND tc.table_schema = %s;
+                      AND tc.table_schema = ANY(%s);
                     """,
-                    (payload.schema_name,),
+                    (schema_names,),
                 )
                 pk_rows = src_cur.fetchall()
 
                 src_cur.execute(
                     """
+                    SELECT tc.table_schema, tc.table_name, kcu.column_name
+                    FROM information_schema.table_constraints tc
+                    JOIN information_schema.key_column_usage kcu
+                      ON tc.constraint_name = kcu.constraint_name
+                     AND tc.table_schema = kcu.table_schema
+                    WHERE tc.constraint_type = 'UNIQUE'
+                      AND tc.table_schema = ANY(%s);
+                    """,
+                    (schema_names,),
+                )
+                unique_rows = src_cur.fetchall()
+
+                src_cur.execute(
+                    """
                     SELECT tc.constraint_name,
+                           kcu.table_schema AS from_schema,
                            kcu.table_name AS from_table,
                            kcu.column_name AS from_column,
+                           ccu.table_schema AS to_schema,
                            ccu.table_name AS to_table,
                            ccu.column_name AS to_column,
                            rc.update_rule,
@@ -155,23 +228,27 @@ class IntrospectionService:
                       ON tc.constraint_name = rc.constraint_name
                      AND tc.table_schema = rc.constraint_schema
                     WHERE tc.constraint_type = 'FOREIGN KEY'
-                      AND tc.table_schema = %s
+                      AND kcu.table_schema = ANY(%s)
+                      AND ccu.table_schema = ANY(%s)
                     ORDER BY tc.constraint_name;
                     """,
-                    (payload.schema_name,),
+                    (schema_names, schema_names),
                 )
                 fk_rows = src_cur.fetchall()
 
-        primary_keys: dict[tuple[str, str], set[str]] = defaultdict(set)
-        for row in pk_rows:
-            primary_keys[(row["table_name"], row["column_name"])].add(row["column_name"])
+        primary_keys: set[tuple[str, str, str]] = {
+            (row["table_schema"], row["table_name"], row["column_name"]) for row in pk_rows
+        }
+        unique_keys: set[tuple[str, str, str]] = {
+            (row["table_schema"], row["table_name"], row["column_name"]) for row in unique_rows
+        }
 
         with conn.cursor() as cur:
             cur.execute(sql.CLEAR_RELATIONSHIPS, {"diagram_id": diagram_id})
             cur.execute(sql.CLEAR_COLUMNS, {"diagram_id": diagram_id})
             cur.execute(sql.CLEAR_TABLES, {"diagram_id": diagram_id})
 
-            table_id_map: dict[str, str] = {}
+            table_id_map: dict[tuple[str, str], str] = {}
             for idx, table in enumerate(source_tables):
                 cur.execute(
                     sql.INSERT_TABLE,
@@ -184,13 +261,14 @@ class IntrospectionService:
                         "pos_y": 120 + (idx // 4) * 260,
                     },
                 )
-                table_id_map[table["table_name"]] = str(cur.fetchone()["table_id"])
+                table_id_map[(table["table_schema"], table["table_name"])] = str(cur.fetchone()["table_id"])
 
-            column_id_map: dict[tuple[str, str], str] = {}
+            column_id_map: dict[tuple[str, str, str], str] = {}
             for col in source_columns:
-                table_id = table_id_map.get(col["table_name"])
+                table_id = table_id_map.get((col["table_schema"], col["table_name"]))
                 if not table_id:
                     continue
+                key = (col["table_schema"], col["table_name"], col["column_name"])
                 cur.execute(
                     sql.INSERT_COLUMN,
                     {
@@ -201,18 +279,20 @@ class IntrospectionService:
                         "udt_name": col["udt_name"],
                         "is_nullable": col["is_nullable"] == "YES",
                         "default_sql": col["column_default"],
-                        "is_primary_key": (col["table_name"], col["column_name"]) in primary_keys,
-                        "is_unique": False,
+                        "is_primary_key": key in primary_keys,
+                        "is_unique": key in unique_keys or key in primary_keys,
                     },
                 )
-                column_id_map[(col["table_name"], col["column_name"])] = str(cur.fetchone()["column_id"])
+                column_id_map[key] = str(cur.fetchone()["column_id"])
 
             relationship_count = 0
             for fk in fk_rows:
-                from_table_id = table_id_map.get(fk["from_table"])
-                to_table_id = table_id_map.get(fk["to_table"])
-                from_column_id = column_id_map.get((fk["from_table"], fk["from_column"]))
-                to_column_id = column_id_map.get((fk["to_table"], fk["to_column"]))
+                from_table_id = table_id_map.get((fk["from_schema"], fk["from_table"]))
+                to_table_id = table_id_map.get((fk["to_schema"], fk["to_table"]))
+                from_column_id = column_id_map.get(
+                    (fk["from_schema"], fk["from_table"], fk["from_column"])
+                )
+                to_column_id = column_id_map.get((fk["to_schema"], fk["to_table"], fk["to_column"]))
                 if not from_table_id or not to_table_id or not from_column_id or not to_column_id:
                     continue
 
@@ -235,4 +315,76 @@ class IntrospectionService:
             "table_count": len(table_id_map),
             "column_count": len(column_id_map),
             "relationship_count": relationship_count,
+            "schema_count": len(schema_names),
+            "imported_schemas": schema_names,
         }
+
+    def _ensure_diagram_exists(self, conn, diagram_id: str) -> dict:
+        with conn.cursor() as cur:
+            cur.execute(sql.GET_DIAGRAM_WORKSPACE, {"diagram_id": diagram_id})
+            diagram = cur.fetchone()
+        if not diagram:
+            raise NotFoundError("diagram not found")
+        return diagram
+
+    @staticmethod
+    def _build_source_dsn(payload: PostgresConnectionRequest) -> str:
+        return (
+            f"host={payload.host} port={payload.port} dbname={payload.database_name} "
+            f"user={payload.username} password={payload.password} sslmode={payload.ssl_mode} connect_timeout=8"
+        )
+
+    def _connect_source(self, payload: PostgresConnectionRequest) -> psycopg.Connection:
+        try:
+            return psycopg.connect(self._build_source_dsn(payload), row_factory=dict_row)
+        except psycopg.Error as exc:
+            raise ValidationError(self._friendly_source_error(exc)) from exc
+
+    def _friendly_source_error(self, exc: Exception) -> str:
+        raw = str(exc).strip()
+        if not raw:
+            return "Unable to connect to PostgreSQL source."
+
+        fatal_match = self._FATAL_RE.search(raw)
+        if fatal_match:
+            return f"PostgreSQL authentication failed: {fatal_match.group(1)}"
+
+        first_line = raw.splitlines()[0].strip()
+        return f"PostgreSQL connection failed: {first_line}"
+
+    @staticmethod
+    def _fetch_available_schemas(src_cur) -> list[str]:
+        src_cur.execute(
+            """
+            SELECT schema_name
+            FROM information_schema.schemata
+            WHERE schema_name <> 'information_schema'
+              AND schema_name NOT LIKE 'pg_%'
+            ORDER BY CASE WHEN schema_name = 'public' THEN 0 ELSE 1 END, schema_name;
+            """
+        )
+        rows = src_cur.fetchall()
+        return [row["schema_name"] for row in rows]
+
+    def _resolve_schema_names(
+        self,
+        payload: ImportPostgresRequest,
+        available_schemas: list[str],
+    ) -> list[str]:
+        available_set = set(available_schemas)
+        if payload.import_all_schemas:
+            return available_schemas
+
+        selected: list[str]
+        if payload.schema_names:
+            selected = sorted({schema.strip() for schema in payload.schema_names if schema.strip()})
+        elif payload.schema_name and payload.schema_name.strip():
+            selected = [payload.schema_name.strip()]
+        else:
+            selected = ["public"] if "public" in available_set else available_schemas[:1]
+
+        unknown = [schema for schema in selected if schema not in available_set]
+        if unknown:
+            raise ValidationError(f"Unknown schema selection: {', '.join(sorted(unknown))}")
+
+        return selected

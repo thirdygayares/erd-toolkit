@@ -6,6 +6,7 @@ import {
   ArrowUp,
   Cable,
   ChevronDown,
+  Copy,
   Database,
   Download,
   FileCode2,
@@ -33,6 +34,8 @@ import { useGetDiagramQuery } from "@/hooks/diagram/useGetDiagramQuery";
 import { useListDiagramsByWorkspaceQuery } from "@/hooks/diagram/useListDiagramsByWorkspaceQuery";
 import { useExportSqlMutation } from "@/hooks/export/useExportSqlMutation";
 import { useImportPostgresMutation } from "@/hooks/import/useImportPostgresMutation";
+import { useListPostgresSchemasMutation } from "@/hooks/import/useListPostgresSchemasMutation";
+import { useTestPostgresConnectionMutation } from "@/hooks/import/useTestPostgresConnectionMutation";
 import { useGetProjectQuery } from "@/hooks/project/useGetProjectQuery";
 import { useUpdateProjectVisibilityMutation } from "@/hooks/project/useUpdateProjectVisibilityMutation";
 import { useCreateColumnMutation } from "@/hooks/schemaEditor/useCreateColumnMutation";
@@ -43,7 +46,13 @@ import { useDeleteRelationshipMutation } from "@/hooks/schemaEditor/useDeleteRel
 import { useUpdateColumnMutation } from "@/hooks/schemaEditor/useUpdateColumnMutation";
 import { useUpdateRelationshipMutation } from "@/hooks/schemaEditor/useUpdateRelationshipMutation";
 import { useUpdateTableMutation } from "@/hooks/schemaEditor/useUpdateTableMutation";
-import type { ColumnResponse, TableResponse } from "@/lib/types";
+import { getApiErrorMessage } from "@/lib/apiError";
+import type {
+  ColumnResponse,
+  DiagramDetailResponse,
+  PostgresConnectionRequest,
+  TableResponse,
+} from "@/lib/types";
 
 import { DiagramCanvas } from "./diagramCanvas/DiagramCanvas";
 
@@ -76,7 +85,6 @@ const postgresTypeOptions = [
   "numeric",
   "text",
   "varchar",
-  "varchar(n)",
   "uuid",
   "timestamp",
   "timestamptz",
@@ -85,6 +93,8 @@ const postgresTypeOptions = [
 ];
 
 const dialogFieldIdPrefix = "dialog-field-";
+const emptyTables: TableResponse[] = [];
+const emptyRelationships: DiagramDetailResponse["relationships"] = [];
 
 interface DashboardProps {
   projectId: string;
@@ -143,6 +153,8 @@ interface RelationshipDialogState {
   mode: RelationshipDialogMode;
   relationshipId: string | null;
 }
+
+type ConnectionCheckStatus = "idle" | "success" | "failed";
 
 function normalizeTableName(name: string, fallback: string) {
   const normalized = name
@@ -211,6 +223,11 @@ function inferAutoIncrement(defaultSql: string | null) {
   }
   const normalized = defaultSql.toLowerCase();
   return normalized.includes("identity") || normalized.includes("nextval");
+}
+
+function isIdentityCompatibleType(dataType: string) {
+  const normalized = normalizeTypeForComparison(removeArraySuffix(dataType));
+  return ["int", "bigint"].includes(normalized);
 }
 
 function findColumn(
@@ -311,7 +328,23 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
   const [importDatabase, setImportDatabase] = useState("erd_toolkit");
   const [importUser, setImportUser] = useState("postgres");
   const [importPassword, setImportPassword] = useState("");
-  const [importSchema, setImportSchema] = useState("public");
+  const [importSslMode, setImportSslMode] = useState("prefer");
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
+  const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
+  const [connectionCheckStatus, setConnectionCheckStatus] =
+    useState<ConnectionCheckStatus>("idle");
+  const [connectionCheckMessage, setConnectionCheckMessage] = useState("");
+  const [availableImportSchemas, setAvailableImportSchemas] = useState<
+    string[]
+  >([]);
+  const [selectedImportSchemas, setSelectedImportSchemas] = useState<string[]>(
+    [],
+  );
+  const [importAllSchemas, setImportAllSchemas] = useState(true);
+  const [exportAllSchemas, setExportAllSchemas] = useState(true);
+  const [selectedExportSchemas, setSelectedExportSchemas] = useState<string[]>(
+    [],
+  );
   const [exportSchema, setExportSchema] = useState("public");
   const [exportSqlOutput, setExportSqlOutput] = useState("");
 
@@ -332,12 +365,19 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
   const deleteRelationshipMutation = useDeleteRelationshipMutation();
 
   const updateProjectVisibilityMutation = useUpdateProjectVisibilityMutation();
+  const testPostgresConnectionMutation = useTestPostgresConnectionMutation();
+  const listPostgresSchemasMutation = useListPostgresSchemasMutation();
   const importPostgresMutation = useImportPostgresMutation();
   const exportSqlMutation = useExportSqlMutation();
   const createSnapshotMutation = useCreateSnapshotMutation();
 
-  const tables = diagramQuery.data?.tables ?? [];
-  const relationships = diagramQuery.data?.relationships ?? [];
+  const tables = diagramQuery.data?.tables ?? emptyTables;
+  const relationships = diagramQuery.data?.relationships ?? emptyRelationships;
+  const availableExportSchemas = useMemo(() => {
+    return [...new Set(tables.map((table) => table.schema_name))].sort(
+      (left, right) => left.localeCompare(right),
+    );
+  }, [tables]);
 
   const selectedTable = useMemo(() => {
     return tables.find((table) => table.table_id === selectedTableId) ?? null;
@@ -391,6 +431,37 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
     return [...postgresTypeOptions, ...[...fromColumns].sort()];
   }, [tables]);
 
+  useEffect(() => {
+    setSelectedExportSchemas((current) => {
+      const next = exportAllSchemas
+        ? availableExportSchemas
+        : current.filter((schema) => availableExportSchemas.includes(schema));
+
+      if (
+        current.length === next.length &&
+        current.every((schema, index) => schema === next[index])
+      ) {
+        return current;
+      }
+      return next;
+    });
+  }, [availableExportSchemas, exportAllSchemas]);
+
+  useEffect(() => {
+    setConnectionCheckStatus("idle");
+    setConnectionCheckMessage("");
+    setAvailableImportSchemas([]);
+    setSelectedImportSchemas([]);
+    setImportAllSchemas(true);
+  }, [
+    importHost,
+    importPort,
+    importDatabase,
+    importUser,
+    importPassword,
+    importSslMode,
+  ]);
+
   const isWorking =
     createDiagramMutation.isPending ||
     createTableMutation.isPending ||
@@ -401,6 +472,8 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
     createRelationshipMutation.isPending ||
     updateRelationshipMutation.isPending ||
     deleteRelationshipMutation.isPending ||
+    testPostgresConnectionMutation.isPending ||
+    listPostgresSchemasMutation.isPending ||
     importPostgresMutation.isPending ||
     exportSqlMutation.isPending ||
     createSnapshotMutation.isPending ||
@@ -517,13 +590,15 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
     }
 
     setExpandedTables((current) => {
+      let changed = false;
       const next = { ...current };
       for (const table of tables) {
         if (next[table.table_id] === undefined) {
           next[table.table_id] = table.table_id === tables[0].table_id;
+          changed = true;
         }
       }
-      return next;
+      return changed ? next : current;
     });
   }, [tables, selectedTableId]);
 
@@ -1178,6 +1253,19 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
       ? `${removeArraySuffix(fieldAttributesDraft.baseType)}[]`
       : removeArraySuffix(fieldAttributesDraft.baseType);
 
+    if (fieldAttributesDraft.autoIncrement) {
+      if (fieldAttributesDraft.array) {
+        setStatusMessage("Auto-increment is not allowed on array columns.");
+        return;
+      }
+      if (!isIdentityCompatibleType(dataType)) {
+        setStatusMessage(
+          "Auto-increment is only allowed for int or bigint columns.",
+        );
+        return;
+      }
+    }
+
     const nextDefault = fieldAttributesDraft.autoIncrement
       ? "generated by default as identity"
       : fieldAttributesDraft.defaultValue.trim() || null;
@@ -1461,8 +1549,104 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
     window.location.href = "/";
   }
 
+  function buildConnectionPayload(): PostgresConnectionRequest {
+    return {
+      host: importHost.trim(),
+      port: importPort,
+      database_name: importDatabase.trim(),
+      username: importUser.trim(),
+      password: importPassword,
+      ssl_mode: importSslMode.trim() || "prefer",
+    };
+  }
+
+  async function loadSchemasFromConnection() {
+    if (!diagramId) {
+      return;
+    }
+    const result = await listPostgresSchemasMutation.mutateAsync({
+      diagramId,
+      payload: buildConnectionPayload(),
+    });
+    setAvailableImportSchemas(result.schemas);
+    setImportAllSchemas(true);
+    setSelectedImportSchemas(result.schemas);
+    if (result.schemas.length === 0) {
+      setStatusMessage(
+        "Connection succeeded, but no importable schemas found.",
+      );
+      return;
+    }
+    setStatusMessage(`Schemas loaded: ${result.schemas.length}`);
+  }
+
+  async function testImportConnection() {
+    if (!diagramId) {
+      return;
+    }
+    try {
+      const result = await testPostgresConnectionMutation.mutateAsync({
+        diagramId,
+        payload: buildConnectionPayload(),
+      });
+      setConnectionCheckStatus("success");
+      setConnectionCheckMessage(
+        `Connected as ${result.current_user} on ${result.database_name}`,
+      );
+      setStatusMessage(
+        `Connection OK (${result.current_user}@${result.database_name}).`,
+      );
+      await loadSchemasFromConnection();
+    } catch (error) {
+      const message = getApiErrorMessage(
+        error,
+        "Unable to connect to PostgreSQL source.",
+      );
+      setConnectionCheckStatus("failed");
+      setConnectionCheckMessage(message);
+      setStatusMessage(message);
+      setAvailableImportSchemas([]);
+      setSelectedImportSchemas([]);
+    }
+  }
+
+  function toggleImportSchemaSelection(schema: string) {
+    setSelectedImportSchemas((current) => {
+      if (current.includes(schema)) {
+        return current.filter((item) => item !== schema);
+      }
+      return [...current, schema].sort((left, right) =>
+        left.localeCompare(right),
+      );
+    });
+  }
+
+  function toggleExportSchemaSelection(schema: string) {
+    setSelectedExportSchemas((current) => {
+      if (current.includes(schema)) {
+        return current.filter((item) => item !== schema);
+      }
+      return [...current, schema].sort((left, right) =>
+        left.localeCompare(right),
+      );
+    });
+  }
+
   async function importSchemaFromPostgres() {
     if (!diagramId) {
+      return;
+    }
+
+    if (connectionCheckStatus !== "success") {
+      setStatusMessage("Test connection first before importing.");
+      return;
+    }
+
+    const selectedSchemas = importAllSchemas
+      ? availableImportSchemas
+      : selectedImportSchemas;
+    if (selectedSchemas.length === 0) {
+      setStatusMessage("Select at least one schema to import.");
       return;
     }
 
@@ -1470,21 +1654,19 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
       const result = await importPostgresMutation.mutateAsync({
         diagramId,
         payload: {
-          host: importHost,
-          port: importPort,
-          database_name: importDatabase,
-          username: importUser,
-          password: importPassword,
-          schema_name: importSchema,
+          ...buildConnectionPayload(),
+          schema_names: selectedSchemas,
+          schema_name: selectedSchemas[0] ?? null,
+          import_all_schemas: importAllSchemas,
         },
       });
 
       setStatusMessage(
         `Import done: tables=${result.table_count} columns=${result.column_count} relationships=${result.relationship_count}`,
       );
+      setIsImportDialogOpen(false);
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Unable to import schema.";
+      const message = getApiErrorMessage(error, "Unable to import schema.");
       setStatusMessage(message);
     }
   }
@@ -1495,19 +1677,78 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
     }
 
     try {
+      const selectedSchemas = exportAllSchemas
+        ? availableExportSchemas
+        : selectedExportSchemas;
+
+      if (!exportAllSchemas && selectedSchemas.length === 0) {
+        setStatusMessage("Select at least one source schema for export.");
+        return;
+      }
+
       const result = await exportSqlMutation.mutateAsync({
         diagramId,
         payload: {
-          target_schema: exportSchema,
+          target_schema: exportSchema.trim() || "public",
+          source_schema_names: selectedSchemas,
+          export_all_schemas: exportAllSchemas,
         },
       });
       setExportSqlOutput(result.sql_output);
       setStatusMessage(`Export done: ${result.statement_count} statements.`);
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Unable to export SQL.";
+      const message = getApiErrorMessage(error, "Unable to export SQL.");
       setStatusMessage(message);
     }
+  }
+
+  async function copyExportSqlOutput() {
+    if (!exportSqlOutput.trim()) {
+      setStatusMessage("No SQL output to copy yet.");
+      return;
+    }
+
+    if (typeof navigator === "undefined" || !navigator.clipboard) {
+      setStatusMessage("Clipboard is not available in this browser.");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(exportSqlOutput);
+      setStatusMessage("SQL output copied.");
+    } catch {
+      setStatusMessage("Unable to copy SQL output.");
+    }
+  }
+
+  function downloadExportSqlOutput() {
+    if (!exportSqlOutput.trim()) {
+      setStatusMessage("No SQL output to download yet.");
+      return;
+    }
+
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const sanitizedSchema = (exportSchema.trim() || "public")
+      .toLowerCase()
+      .replace(/[^a-z0-9_]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const filename = `erd_export_${sanitizedSchema || "public"}_${timestamp}.sql`;
+    const blob = new Blob([exportSqlOutput], {
+      type: "application/sql;charset=utf-8",
+    });
+    const downloadUrl = window.URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = downloadUrl;
+    anchor.download = filename;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    window.URL.revokeObjectURL(downloadUrl);
+    setStatusMessage(`SQL downloaded: ${filename}`);
   }
 
   async function createSnapshot() {
@@ -1778,86 +2019,31 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
                   Import / Export
                 </h3>
                 <div className="grid grid-cols-2 gap-1.5">
-                  <input
-                    value={importHost}
-                    onChange={(event) => setImportHost(event.target.value)}
-                    placeholder="localhost"
-                    className="rounded-md border border-slate-300 px-2 py-1 text-xs outline-none focus:border-blue-500"
-                  />
-                  <input
-                    value={importPort}
-                    onChange={(event) =>
-                      setImportPort(Number(event.target.value) || 5432)
-                    }
-                    placeholder="5432"
-                    type="number"
-                    className="rounded-md border border-slate-300 px-2 py-1 text-xs outline-none focus:border-blue-500"
-                  />
-                  <input
-                    value={importDatabase}
-                    onChange={(event) => setImportDatabase(event.target.value)}
-                    placeholder="database"
-                    className="rounded-md border border-slate-300 px-2 py-1 text-xs outline-none focus:border-blue-500"
-                  />
-                  <input
-                    value={importUser}
-                    onChange={(event) => setImportUser(event.target.value)}
-                    placeholder="user"
-                    className="rounded-md border border-slate-300 px-2 py-1 text-xs outline-none focus:border-blue-500"
-                  />
-                  <input
-                    value={importPassword}
-                    onChange={(event) => setImportPassword(event.target.value)}
-                    placeholder="password"
-                    type="password"
-                    className="rounded-md border border-slate-300 px-2 py-1 text-xs outline-none focus:border-blue-500"
-                  />
-                  <input
-                    value={importSchema}
-                    onChange={(event) => setImportSchema(event.target.value)}
-                    placeholder="public"
-                    className="rounded-md border border-slate-300 px-2 py-1 text-xs outline-none focus:border-blue-500"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-1.5">
                   <button
                     type="button"
-                    onClick={() => void importSchemaFromPostgres()}
+                    onClick={() => setIsImportDialogOpen(true)}
                     className="inline-flex items-center justify-center gap-1 rounded-md bg-slate-900 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-slate-700"
                   >
                     <Database className="h-4 w-4" />
-                    Import
+                    Import...
                   </button>
                   <button
                     type="button"
-                    onClick={() => void createSnapshot()}
-                    className="inline-flex items-center justify-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold hover:bg-slate-50"
-                  >
-                    <Save className="h-4 w-4" />
-                    Snapshot
-                  </button>
-                </div>
-                <div className="grid grid-cols-[1fr_auto] gap-1.5">
-                  <input
-                    value={exportSchema}
-                    onChange={(event) => setExportSchema(event.target.value)}
-                    className="rounded-md border border-slate-300 px-2 py-1 text-xs outline-none focus:border-blue-500"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => void exportSql()}
+                    onClick={() => setIsExportDialogOpen(true)}
                     className="inline-flex items-center justify-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold hover:bg-slate-50"
                   >
                     <Download className="h-4 w-4" />
-                    Export
+                    Export...
                   </button>
                 </div>
-                <textarea
-                  value={exportSqlOutput}
-                  onChange={() => undefined}
-                  className="h-16 w-full rounded-md border border-slate-300 p-1.5 text-xs"
-                  placeholder="SQL output"
-                />
+                <button
+                  type="button"
+                  onClick={() => void createSnapshot()}
+                  className="inline-flex w-full items-center justify-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold hover:bg-slate-50"
+                >
+                  <Save className="h-4 w-4" />
+                  Snapshot
+                </button>
               </div>
             ) : (
               <>
@@ -2857,6 +3043,284 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
                   Save
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isImportDialogOpen ? (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/30 p-4">
+          <div className="w-full max-w-xl rounded-xl border border-slate-300 bg-white p-4 shadow-xl">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Import PostgreSQL</h3>
+              <button
+                type="button"
+                onClick={() => setIsImportDialogOpen(false)}
+                className="rounded p-1 text-slate-500 hover:bg-slate-100"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  value={importHost}
+                  onChange={(event) => setImportHost(event.target.value)}
+                  placeholder="Host"
+                  className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                />
+                <input
+                  value={importPort}
+                  onChange={(event) =>
+                    setImportPort(Number(event.target.value) || 5432)
+                  }
+                  placeholder="Port"
+                  type="number"
+                  className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                />
+                <input
+                  value={importDatabase}
+                  onChange={(event) => setImportDatabase(event.target.value)}
+                  placeholder="Database"
+                  className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                />
+                <input
+                  value={importUser}
+                  onChange={(event) => setImportUser(event.target.value)}
+                  placeholder="Username"
+                  className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                />
+                <input
+                  value={importPassword}
+                  onChange={(event) => setImportPassword(event.target.value)}
+                  placeholder="Password"
+                  type="password"
+                  className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                />
+                <select
+                  value={importSslMode}
+                  onChange={(event) => setImportSslMode(event.target.value)}
+                  className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
+                >
+                  <option value="disable">SSL disable</option>
+                  <option value="prefer">SSL prefer</option>
+                  <option value="require">SSL require</option>
+                </select>
+              </div>
+
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-2 text-xs text-slate-700">
+                <p className="font-semibold">Connection status</p>
+                <p>
+                  {connectionCheckStatus === "success"
+                    ? connectionCheckMessage || "Connection successful."
+                    : connectionCheckStatus === "failed"
+                      ? connectionCheckMessage || "Connection failed."
+                      : "Run test connection first."}
+                </p>
+              </div>
+
+              <div className="rounded-md border border-slate-200 p-2">
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-xs font-semibold text-slate-700">
+                    Schemas to import
+                  </p>
+                  <label className="inline-flex items-center gap-1 text-xs text-slate-600">
+                    <input
+                      type="checkbox"
+                      checked={importAllSchemas}
+                      onChange={(event) => {
+                        const checked = event.target.checked;
+                        setImportAllSchemas(checked);
+                        if (checked) {
+                          setSelectedImportSchemas(availableImportSchemas);
+                        }
+                      }}
+                    />
+                    All schemas
+                  </label>
+                </div>
+                <div className="max-h-36 space-y-1 overflow-y-auto pr-1">
+                  {availableImportSchemas.length === 0 ? (
+                    <p className="text-xs text-slate-500">
+                      No schemas loaded yet. Test connection first.
+                    </p>
+                  ) : (
+                    availableImportSchemas.map((schema) => (
+                      <label
+                        key={schema}
+                        className="flex items-center gap-2 rounded px-2 py-1 text-sm hover:bg-slate-50"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={
+                            importAllSchemas ||
+                            selectedImportSchemas.includes(schema)
+                          }
+                          disabled={importAllSchemas}
+                          onChange={() => toggleImportSchemaSelection(schema)}
+                        />
+                        <span>{schema}</span>
+                      </label>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 flex justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => void testImportConnection()}
+                className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold hover:bg-slate-50"
+              >
+                Test Connection
+              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsImportDialogOpen(false)}
+                  className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void importSchemaFromPostgres()}
+                  className="rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700"
+                >
+                  Import
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isExportDialogOpen ? (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/30 p-4">
+          <div className="w-full max-w-xl rounded-xl border border-slate-300 bg-white p-4 shadow-xl">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Export SQL</h3>
+              <button
+                type="button"
+                onClick={() => setIsExportDialogOpen(false)}
+                className="rounded p-1 text-slate-500 hover:bg-slate-100"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <p className="mb-1 block text-xs font-semibold text-slate-600">
+                  Target schema
+                </p>
+                <input
+                  value={exportSchema}
+                  onChange={(event) => setExportSchema(event.target.value)}
+                  placeholder="public"
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div className="rounded-md border border-slate-200 p-2">
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-xs font-semibold text-slate-700">
+                    Source schemas to export
+                  </p>
+                  <label className="inline-flex items-center gap-1 text-xs text-slate-600">
+                    <input
+                      type="checkbox"
+                      checked={exportAllSchemas}
+                      onChange={(event) => {
+                        const checked = event.target.checked;
+                        setExportAllSchemas(checked);
+                        if (checked) {
+                          setSelectedExportSchemas(availableExportSchemas);
+                        }
+                      }}
+                    />
+                    All schemas
+                  </label>
+                </div>
+                <div className="max-h-36 space-y-1 overflow-y-auto pr-1">
+                  {availableExportSchemas.length === 0 ? (
+                    <p className="text-xs text-slate-500">
+                      No tables/schemas available to export.
+                    </p>
+                  ) : (
+                    availableExportSchemas.map((schema) => (
+                      <label
+                        key={schema}
+                        className="flex items-center gap-2 rounded px-2 py-1 text-sm hover:bg-slate-50"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={
+                            exportAllSchemas ||
+                            selectedExportSchemas.includes(schema)
+                          }
+                          disabled={exportAllSchemas}
+                          onChange={() => toggleExportSchemaSelection(schema)}
+                        />
+                        <span>{schema}</span>
+                      </label>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold text-slate-700">
+                    SQL output
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void copyExportSqlOutput()}
+                      disabled={!exportSqlOutput.trim()}
+                      className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                      Copy
+                    </button>
+                    <button
+                      type="button"
+                      onClick={downloadExportSqlOutput}
+                      disabled={!exportSqlOutput.trim()}
+                      className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      Download
+                    </button>
+                  </div>
+                </div>
+                <textarea
+                  value={exportSqlOutput}
+                  readOnly
+                  className="h-44 w-full rounded-md border border-slate-300 p-2 font-mono text-xs leading-relaxed"
+                  placeholder="Click Export to generate SQL output..."
+                />
+              </div>
+            </div>
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIsExportDialogOpen(false)}
+                className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void exportSql()}
+                className="rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700"
+              >
+                Export
+              </button>
             </div>
           </div>
         </div>
