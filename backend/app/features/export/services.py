@@ -7,6 +7,7 @@ from psycopg.types.json import Jsonb
 
 from app.core.context import RequestContext
 from app.core.db import Database
+from app.core.errors import ValidationError
 from app.features.export import sql
 from app.features.export.schemas import ExportSqlRequest
 
@@ -81,7 +82,13 @@ class ExportService:
                 export_job_id = cur.fetchone()["export_job_id"]
 
             try:
-                sql_output, statement_count = self._generate_sql(conn, diagram_id, payload.target_schema)
+                sql_output, statement_count = self._generate_sql(
+                    conn,
+                    diagram_id,
+                    payload.target_schema,
+                    payload.source_schema_names,
+                    payload.export_all_schemas,
+                )
                 with conn.cursor() as cur:
                     cur.execute(
                         sql.MARK_EXPORT_SUCCESS,
@@ -108,14 +115,37 @@ class ExportService:
                     )
                 raise
 
-    def _generate_sql(self, conn, diagram_id: str, target_schema: str) -> tuple[str, int]:
+    def _generate_sql(
+        self,
+        conn,
+        diagram_id: str,
+        target_schema: str,
+        source_schema_names: list[str] | None = None,
+        export_all_schemas: bool = True,
+    ) -> tuple[str, int]:
         with conn.cursor() as cur:
             cur.execute(sql.GET_TABLES, {"diagram_id": diagram_id})
             tables = cur.fetchall()
 
+            selected_schema_names = self._resolve_source_schema_names(
+                tables,
+                source_schema_names=source_schema_names or [],
+                export_all_schemas=export_all_schemas,
+            )
+            tables = [
+                table for table in tables if table["schema_name"] in selected_schema_names
+            ]
+
             relationships: list[dict]
             cur.execute(sql.GET_RELATIONSHIPS, {"diagram_id": diagram_id})
             relationships = cur.fetchall()
+            selected_table_ids = {str(table["table_id"]) for table in tables}
+            relationships = [
+                rel
+                for rel in relationships
+                if str(rel["from_table_id"]) in selected_table_ids
+                and str(rel["to_table_id"]) in selected_table_ids
+            ]
 
             columns_by_table: dict[str, list[dict]] = defaultdict(list)
             column_lookup: dict[str, str] = {}
@@ -354,3 +384,27 @@ class ExportService:
         if left == right:
             return True
         return {left, right} == {"text", "varchar"}
+
+    def _resolve_source_schema_names(
+        self,
+        tables: list[dict],
+        *,
+        source_schema_names: list[str],
+        export_all_schemas: bool,
+    ) -> set[str]:
+        available = {table["schema_name"] for table in tables}
+        if export_all_schemas:
+            return available
+
+        selected = {schema.strip() for schema in source_schema_names if schema and schema.strip()}
+        if not selected:
+            raise ValidationError(
+                "No source schemas selected for export. Choose at least one schema or enable export-all."
+            )
+
+        unknown = sorted(selected - available)
+        if unknown:
+            raise ValidationError(
+                f"Unknown source schema selection: {', '.join(unknown)}"
+            )
+        return selected

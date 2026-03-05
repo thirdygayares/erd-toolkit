@@ -5,15 +5,33 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 
-class ImportPostgresRequest(BaseModel):
+class PostgresConnectionRequest(BaseModel):
     host: str
     port: int = Field(default=5432, ge=1, le=65535)
     database_name: str
     username: str
     password: str
-    schema_name: str = "public"
     ssl_mode: str = Field(default="prefer")
     connection_name: str | None = None
+
+
+class PostgresConnectionTestResponse(BaseModel):
+    status: str
+    database_name: str
+    current_user: str
+    server_version: str
+
+
+class PostgresSchemaListResponse(BaseModel):
+    status: str
+    schemas: list[str]
+    default_schema: str
+
+
+class ImportPostgresRequest(PostgresConnectionRequest):
+    schema_name: str | None = None
+    schema_names: list[str] = Field(default_factory=list)
+    import_all_schemas: bool = False
 
 
 class ImportPostgresResponse(BaseModel):

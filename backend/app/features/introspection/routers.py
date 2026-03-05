@@ -4,7 +4,13 @@ from fastapi import APIRouter, Depends, status
 
 from app.core.context import RequestContext, get_request_context
 from app.core.db import get_db
-from app.features.introspection.schemas import ImportPostgresRequest, ImportPostgresResponse
+from app.features.introspection.schemas import (
+    ImportPostgresRequest,
+    ImportPostgresResponse,
+    PostgresConnectionRequest,
+    PostgresConnectionTestResponse,
+    PostgresSchemaListResponse,
+)
 from app.features.introspection.services import IntrospectionService
 
 router = APIRouter(tags=["introspection"])
@@ -26,3 +32,31 @@ def import_postgres(
     service: IntrospectionService = Depends(get_introspection_service),
 ) -> ImportPostgresResponse:
     return ImportPostgresResponse(**service.import_postgres(diagram_id, payload, ctx))
+
+
+@router.post(
+    "/diagrams/{diagram_id}/import/postgres/test",
+    response_model=PostgresConnectionTestResponse,
+)
+def test_postgres_connection(
+    diagram_id: str,
+    payload: PostgresConnectionRequest,
+    ctx: RequestContext = Depends(get_request_context),
+    service: IntrospectionService = Depends(get_introspection_service),
+) -> PostgresConnectionTestResponse:
+    return PostgresConnectionTestResponse(
+        **service.test_postgres_connection(diagram_id, payload, ctx)
+    )
+
+
+@router.post(
+    "/diagrams/{diagram_id}/import/postgres/schemas",
+    response_model=PostgresSchemaListResponse,
+)
+def list_postgres_schemas(
+    diagram_id: str,
+    payload: PostgresConnectionRequest,
+    ctx: RequestContext = Depends(get_request_context),
+    service: IntrospectionService = Depends(get_introspection_service),
+) -> PostgresSchemaListResponse:
+    return PostgresSchemaListResponse(**service.list_postgres_schemas(diagram_id, payload, ctx))

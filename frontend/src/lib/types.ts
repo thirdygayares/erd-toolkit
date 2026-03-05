@@ -236,15 +236,33 @@ export interface DiagramDetailResponse {
   relationships: RelationshipResponse[];
 }
 
-export interface ImportPostgresRequest {
+export interface PostgresConnectionRequest {
   host: string;
   port: number;
   database_name: string;
   username: string;
   password: string;
-  schema_name?: string;
   ssl_mode?: string;
   connection_name?: string;
+}
+
+export interface PostgresConnectionTestResponse {
+  status: string;
+  database_name: string;
+  current_user: string;
+  server_version: string;
+}
+
+export interface PostgresSchemaListResponse {
+  status: string;
+  schemas: string[];
+  default_schema: string;
+}
+
+export interface ImportPostgresRequest extends PostgresConnectionRequest {
+  schema_name?: string | null;
+  schema_names?: string[];
+  import_all_schemas?: boolean;
 }
 
 export interface ImportPostgresResponse {
@@ -258,6 +276,8 @@ export interface ImportPostgresResponse {
 
 export interface ExportSqlRequest {
   target_schema: string;
+  source_schema_names?: string[];
+  export_all_schemas?: boolean;
 }
 
 export interface ExportSqlResponse {
