@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from psycopg.errors import UndefinedFunction
+
 from app.core.context import RequestContext
 from app.core.db import Database
 from app.core.errors import NotFoundError
@@ -17,6 +19,14 @@ from app.features.schema_editor.schemas import (
 class SchemaEditorService:
     def __init__(self, db: Database) -> None:
         self.db = db
+
+    @staticmethod
+    def _normalize_column_row(row: dict | None) -> dict | None:
+        if not row:
+            return row
+        payload = dict(row)
+        payload.setdefault("example_value", None)
+        return payload
 
     def create_table(self, diagram_id: str, payload: TableCreateRequest, ctx: RequestContext) -> dict:
         with self.db.connection() as conn:
@@ -75,21 +85,25 @@ class SchemaEditorService:
         with self.db.connection() as conn:
             self.db.apply_request_context(conn, ctx)
             with conn.cursor() as cur:
-                cur.execute(
-                    sql.INSERT_COLUMN,
-                    {
-                        "table_id": table_id,
-                        "column_name": payload.column_name,
-                        "ordinal_position": payload.ordinal_position,
-                        "data_type": payload.data_type,
-                        "udt_name": payload.udt_name,
-                        "is_nullable": payload.is_nullable,
-                        "default_sql": payload.default_sql,
-                        "is_primary_key": payload.is_primary_key,
-                        "is_unique": payload.is_unique,
-                    },
-                )
-                row = cur.fetchone()
+                params = {
+                    "table_id": table_id,
+                    "column_name": payload.column_name,
+                    "ordinal_position": payload.ordinal_position,
+                    "data_type": payload.data_type,
+                    "udt_name": payload.udt_name,
+                    "is_nullable": payload.is_nullable,
+                    "default_sql": payload.default_sql,
+                    "is_primary_key": payload.is_primary_key,
+                    "is_unique": payload.is_unique,
+                    "example_value": payload.example_value,
+                }
+                try:
+                    cur.execute(sql.INSERT_COLUMN, params)
+                except UndefinedFunction:
+                    # Backward compatibility: DB may still have the old 9-arg function.
+                    cur.execute(sql.INSERT_COLUMN_LEGACY, params)
+
+                row = self._normalize_column_row(cur.fetchone())
                 if not row:
                     raise NotFoundError("unable to create column")
                 return row
@@ -104,22 +118,26 @@ class SchemaEditorService:
         with self.db.connection() as conn:
             self.db.apply_request_context(conn, ctx)
             with conn.cursor() as cur:
-                cur.execute(
-                    sql.UPDATE_COLUMN,
-                    {
-                        "table_id": table_id,
-                        "column_id": column_id,
-                        "column_name": payload.column_name,
-                        "ordinal_position": payload.ordinal_position,
-                        "data_type": payload.data_type,
-                        "udt_name": payload.udt_name,
-                        "is_nullable": payload.is_nullable,
-                        "default_sql": payload.default_sql,
-                        "is_primary_key": payload.is_primary_key,
-                        "is_unique": payload.is_unique,
-                    },
-                )
-                row = cur.fetchone()
+                params = {
+                    "table_id": table_id,
+                    "column_id": column_id,
+                    "column_name": payload.column_name,
+                    "ordinal_position": payload.ordinal_position,
+                    "data_type": payload.data_type,
+                    "udt_name": payload.udt_name,
+                    "is_nullable": payload.is_nullable,
+                    "default_sql": payload.default_sql,
+                    "is_primary_key": payload.is_primary_key,
+                    "is_unique": payload.is_unique,
+                    "example_value": payload.example_value,
+                }
+                try:
+                    cur.execute(sql.UPDATE_COLUMN, params)
+                except UndefinedFunction:
+                    # Backward compatibility: DB may still have the old 10-arg function.
+                    cur.execute(sql.UPDATE_COLUMN_LEGACY, params)
+
+                row = self._normalize_column_row(cur.fetchone())
                 if not row:
                     raise NotFoundError("column not found")
                 return row
@@ -140,7 +158,7 @@ class SchemaEditorService:
                         "column_id": column_id,
                     },
                 )
-                row = cur.fetchone()
+                row = self._normalize_column_row(cur.fetchone())
                 if not row:
                     raise NotFoundError("column not found")
                 return row

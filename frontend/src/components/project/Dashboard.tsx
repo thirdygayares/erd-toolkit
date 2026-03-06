@@ -10,22 +10,27 @@ import {
   Database,
   Download,
   FileCode2,
+  GripVertical,
   KeyRound,
   Link2,
   Lock,
   Menu,
+  MoreVertical,
   PanelLeftClose,
   PanelLeftOpen,
   Pencil,
+  Plus,
   RefreshCw,
   Save,
   Search,
+  Settings2,
   Table2,
   Trash2,
   Unlock,
   Upload,
   X,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useCreateDiagramMutation } from "@/hooks/diagram/useCreateDiagramMutation";
@@ -59,6 +64,7 @@ import { DiagramCanvas } from "./diagramCanvas/DiagramCanvas";
 type SidebarMode = "tables" | "relations" | "customTypes" | "importExport";
 type TableDialogMode = "create" | "edit";
 type RelationshipDialogMode = "create" | "edit";
+type ProjectView = "erd" | "dictionary";
 
 const sessionStorageKey = {
   workspaceId: "ERD_WORKSPACE_ID",
@@ -99,6 +105,7 @@ const emptyRelationships: DiagramDetailResponse["relationships"] = [];
 interface DashboardProps {
   projectId: string;
   initialShareSlug?: string | null;
+  initialView?: ProjectView;
 }
 
 interface TableDialogState {
@@ -130,10 +137,13 @@ interface NormalizedTableDialogField extends TableDialogFieldDraft {
 interface FieldAttributesDraft {
   tableId: string;
   columnId: string;
+  primaryKey: boolean;
   unique: boolean;
   autoIncrement: boolean;
   array: boolean;
+  isNullable: boolean;
   defaultValue: string;
+  example: string;
   comments: string;
   baseType: string;
 }
@@ -242,7 +252,12 @@ function findColumn(
   return table.columns.find((column) => column.column_id === columnId) ?? null;
 }
 
-export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
+export function Dashboard({
+  projectId,
+  initialShareSlug,
+  initialView = "erd",
+}: DashboardProps) {
+  const router = useRouter();
   const [activeProjectId, setActiveProjectId] = useState(
     initialShareSlug ? "" : projectId,
   );
@@ -257,6 +272,7 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
   const [sidebarPanelWidth, setSidebarPanelWidth] = useState(300);
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
+  const sidebarRenameInputRef = useRef<HTMLInputElement>(null);
   const [tableFilter, setTableFilter] = useState("");
   const [relationFilter, setRelationFilter] = useState("");
 
@@ -300,6 +316,31 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
   const [columnNameDrafts, setColumnNameDrafts] = useState<
     Record<string, string>
   >({});
+  const [columnDefaultDrafts, setColumnDefaultDrafts] = useState<
+    Record<string, string>
+  >({});
+  const [columnExampleDrafts, setColumnExampleDrafts] = useState<
+    Record<string, string>
+  >({});
+  const [draggedColumn, setDraggedColumn] = useState<{
+    tableId: string;
+    columnId: string;
+  } | null>(null);
+  const [dragOverColumnId, setDragOverColumnId] = useState<string | null>(null);
+  const [activeFieldRow, setActiveFieldRow] = useState<{
+    tableId: string;
+    rowId: string;
+  } | null>(null);
+  const [openNewFieldTableId, setOpenNewFieldTableId] = useState<string | null>(
+    null,
+  );
+  const [openTableActionsMenuId, setOpenTableActionsMenuId] = useState<
+    string | null
+  >(null);
+  const [editingSidebarTableId, setEditingSidebarTableId] = useState<
+    string | null
+  >(null);
+  const [editingSidebarTableName, setEditingSidebarTableName] = useState("");
 
   const [newColumnByTable, setNewColumnByTable] = useState<
     Record<string, { name: string; dataType: string; isNullable: boolean }>
@@ -373,6 +414,7 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
 
   const tables = diagramQuery.data?.tables ?? emptyTables;
   const relationships = diagramQuery.data?.relationships ?? emptyRelationships;
+  const isDataDictionaryView = initialView === "dictionary";
   const availableExportSchemas = useMemo(() => {
     return [...new Set(tables.map((table) => table.schema_name))].sort(
       (left, right) => left.localeCompare(right),
@@ -447,6 +489,7 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
     });
   }, [availableExportSchemas, exportAllSchemas]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset import test state whenever connection details change.
   useEffect(() => {
     setConnectionCheckStatus("idle");
     setConnectionCheckMessage("");
@@ -461,6 +504,33 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
     importPassword,
     importSslMode,
   ]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const onDocumentMouseDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("[data-table-actions-menu='true']")) {
+        return;
+      }
+      setOpenTableActionsMenuId(null);
+    };
+
+    document.addEventListener("mousedown", onDocumentMouseDown);
+    return () => {
+      document.removeEventListener("mousedown", onDocumentMouseDown);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!editingSidebarTableId) {
+      return;
+    }
+    sidebarRenameInputRef.current?.focus();
+    sidebarRenameInputRef.current?.select();
+  }, [editingSidebarTableId]);
 
   const isWorking =
     createDiagramMutation.isPending ||
@@ -765,6 +835,53 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
     );
     setTableDialogOriginalColumns(orderedColumns);
     setTableDialogFields(orderedColumns.map(mapColumnToDialogField));
+  }
+
+  function beginSidebarTableRename(table: TableResponse) {
+    setSelectedTableId(table.table_id);
+    setEditingSidebarTableId(table.table_id);
+    setEditingSidebarTableName(table.display_name ?? table.table_name);
+  }
+
+  function cancelSidebarTableRename() {
+    setEditingSidebarTableId(null);
+    setEditingSidebarTableName("");
+  }
+
+  async function commitSidebarTableRename(table: TableResponse) {
+    if (!diagramId) {
+      cancelSidebarTableRename();
+      return;
+    }
+
+    const nextDisplayName = editingSidebarTableName.trim();
+    if (!nextDisplayName) {
+      cancelSidebarTableRename();
+      return;
+    }
+
+    const currentDisplayName = table.display_name ?? table.table_name;
+    if (nextDisplayName === currentDisplayName) {
+      cancelSidebarTableRename();
+      return;
+    }
+
+    try {
+      await updateTableMutation.mutateAsync({
+        diagramId,
+        tableId: table.table_id,
+        payload: {
+          display_name: nextDisplayName,
+        },
+      });
+      setStatusMessage("Table name updated.");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to rename table.";
+      setStatusMessage(message);
+    } finally {
+      cancelSidebarTableRename();
+    }
   }
 
   function closeTableDialog() {
@@ -1197,6 +1314,8 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
         dataType: draft.dataType,
         isNullable: draft.isNullable,
       });
+      setOpenNewFieldTableId(null);
+      setActiveFieldRow(null);
       setStatusMessage(`Column created: ${createdColumn.column_name}`);
     } catch (error) {
       const message =
@@ -1209,6 +1328,7 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
     tableId: string,
     columnId: string,
     patch: Parameters<typeof updateColumnMutation.mutateAsync>[0]["payload"],
+    options?: { successMessage?: string | null },
   ) {
     if (!diagramId) {
       return;
@@ -1221,10 +1341,32 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
         columnId,
         payload: patch,
       });
-      setStatusMessage("Column updated.");
+      const successMessage = options?.successMessage ?? "Column updated.";
+      if (successMessage) {
+        setStatusMessage(successMessage);
+      }
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Unable to update column.";
+      setStatusMessage(message);
+    }
+  }
+
+  async function deleteColumnFromTable(tableId: string, columnId: string) {
+    if (!diagramId) {
+      return;
+    }
+
+    try {
+      await deleteColumnMutation.mutateAsync({
+        diagramId,
+        tableId,
+        columnId,
+      });
+      setStatusMessage("Column deleted.");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to delete column.";
       setStatusMessage(message);
     }
   }
@@ -1235,10 +1377,13 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
     setFieldAttributesDraft({
       tableId: table.table_id,
       columnId: column.column_id,
+      primaryKey: column.is_primary_key,
       unique: column.is_unique,
       autoIncrement: inferAutoIncrement(column.default_sql),
       array: column.data_type.endsWith("[]"),
+      isNullable: column.is_nullable,
       defaultValue: column.default_sql ?? "",
+      example: column.example_value ?? "",
       comments: columnComments[column.column_id] ?? "",
       baseType,
     });
@@ -1269,23 +1414,260 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
     const nextDefault = fieldAttributesDraft.autoIncrement
       ? "generated by default as identity"
       : fieldAttributesDraft.defaultValue.trim() || null;
+    const nextExample = fieldAttributesDraft.example;
+    const nextIsPrimaryKey = fieldAttributesDraft.primaryKey;
+    const nextIsUnique = nextIsPrimaryKey ? true : fieldAttributesDraft.unique;
+    const nextIsNullable = nextIsPrimaryKey
+      ? false
+      : fieldAttributesDraft.autoIncrement
+        ? false
+        : fieldAttributesDraft.isNullable;
 
     await updateColumn(
       fieldAttributesDraft.tableId,
       fieldAttributesDraft.columnId,
       {
         data_type: dataType,
-        is_unique: fieldAttributesDraft.unique,
+        is_primary_key: nextIsPrimaryKey,
+        is_unique: nextIsUnique,
+        is_nullable: nextIsNullable,
         default_sql: nextDefault,
+        example_value: nextExample,
+      },
+      {
+        successMessage: "Field attributes updated.",
       },
     );
 
+    setColumnDefaultDrafts((current) => ({
+      ...current,
+      [fieldAttributesDraft.columnId]: nextDefault ?? "",
+    }));
+    setColumnExampleDrafts((current) => ({
+      ...current,
+      [fieldAttributesDraft.columnId]: nextExample,
+    }));
     setColumnComments((current) => ({
       ...current,
       [fieldAttributesDraft.columnId]: fieldAttributesDraft.comments,
     }));
 
     setFieldAttributesDraft(null);
+  }
+
+  function getOrderedColumns(table: TableResponse) {
+    return [...table.columns].sort(
+      (left, right) => left.ordinal_position - right.ordinal_position,
+    );
+  }
+
+  function getDictionaryInputClass(isActive: boolean) {
+    return `w-full rounded-md px-2 py-1 text-xs outline-none transition-colors ${
+      isActive
+        ? "border border-slate-300 bg-white focus:border-blue-500"
+        : "border border-transparent bg-transparent text-slate-700 hover:bg-slate-100 focus:border-slate-300 focus:bg-white"
+    }`;
+  }
+
+  async function commitColumnNameDraft(
+    tableId: string,
+    column: ColumnResponse,
+  ) {
+    const draftValue = columnNameDrafts[column.column_id];
+    if (draftValue === undefined) {
+      return;
+    }
+
+    const nextValue = draftValue.trim();
+    if (!nextValue) {
+      setColumnNameDrafts((current) => ({
+        ...current,
+        [column.column_id]: column.column_name,
+      }));
+      return;
+    }
+
+    if (nextValue === column.column_name) {
+      return;
+    }
+
+    await updateColumn(tableId, column.column_id, {
+      column_name: nextValue,
+    });
+  }
+
+  async function commitColumnDefaultDraft(
+    tableId: string,
+    column: ColumnResponse,
+  ) {
+    const draftValue = columnDefaultDrafts[column.column_id];
+    if (draftValue === undefined) {
+      return;
+    }
+
+    const currentValue = column.default_sql ?? "";
+    if (draftValue === currentValue) {
+      return;
+    }
+
+    await updateColumn(tableId, column.column_id, {
+      // The API uses COALESCE for patches; empty string is used to clear.
+      default_sql: draftValue === "" ? "" : draftValue,
+    });
+  }
+
+  async function commitColumnExampleDraft(
+    tableId: string,
+    column: ColumnResponse,
+  ) {
+    const draftValue = columnExampleDrafts[column.column_id];
+    if (draftValue === undefined) {
+      return;
+    }
+
+    const currentValue = column.example_value ?? "";
+    if (draftValue === currentValue) {
+      return;
+    }
+
+    await updateColumn(tableId, column.column_id, {
+      // The API uses COALESCE for patches; empty string is used to clear.
+      example_value: draftValue === "" ? "" : draftValue,
+    });
+  }
+
+  async function reorderTableColumns(
+    tableId: string,
+    nextOrderedColumnIds: string[],
+  ) {
+    if (!diagramId) {
+      return;
+    }
+
+    const table = tables.find((item) => item.table_id === tableId);
+    if (!table) {
+      return;
+    }
+
+    const currentOrderedColumns = getOrderedColumns(table);
+    const currentOrderKey = currentOrderedColumns
+      .map((column) => column.column_id)
+      .join("|");
+    const nextOrderedColumns = nextOrderedColumnIds
+      .map((columnId) =>
+        currentOrderedColumns.find((column) => column.column_id === columnId),
+      )
+      .filter((column): column is ColumnResponse => Boolean(column));
+    const nextOrderKey = nextOrderedColumns
+      .map((column) => column.column_id)
+      .join("|");
+
+    if (
+      currentOrderedColumns.length !== nextOrderedColumns.length ||
+      currentOrderKey === nextOrderKey
+    ) {
+      return;
+    }
+
+    try {
+      let temporaryOrdinal = nextOrderedColumns.length + 1000;
+      for (const column of nextOrderedColumns) {
+        await updateColumnMutation.mutateAsync({
+          diagramId,
+          tableId,
+          columnId: column.column_id,
+          payload: {
+            ordinal_position: temporaryOrdinal,
+          },
+        });
+        temporaryOrdinal += 1;
+      }
+
+      for (const [index, column] of nextOrderedColumns.entries()) {
+        await updateColumnMutation.mutateAsync({
+          diagramId,
+          tableId,
+          columnId: column.column_id,
+          payload: {
+            ordinal_position: index + 1,
+          },
+        });
+      }
+
+      setStatusMessage("Fields reordered.");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to reorder fields.";
+      setStatusMessage(message);
+    }
+  }
+
+  async function moveColumnByStep(
+    tableId: string,
+    columnId: string,
+    direction: "up" | "down",
+  ) {
+    const table = tables.find((item) => item.table_id === tableId);
+    if (!table) {
+      return;
+    }
+
+    const orderedColumns = getOrderedColumns(table);
+    const sourceIndex = orderedColumns.findIndex(
+      (column) => column.column_id === columnId,
+    );
+    if (sourceIndex < 0) {
+      return;
+    }
+
+    const targetIndex = direction === "up" ? sourceIndex - 1 : sourceIndex + 1;
+    if (targetIndex < 0 || targetIndex >= orderedColumns.length) {
+      return;
+    }
+
+    const nextOrderedColumns = [...orderedColumns];
+    const [movedColumn] = nextOrderedColumns.splice(sourceIndex, 1);
+    nextOrderedColumns.splice(targetIndex, 0, movedColumn);
+
+    await reorderTableColumns(
+      tableId,
+      nextOrderedColumns.map((column) => column.column_id),
+    );
+  }
+
+  async function dropColumnOnTarget(tableId: string, targetColumnId: string) {
+    if (!draggedColumn || draggedColumn.tableId !== tableId) {
+      return;
+    }
+
+    if (draggedColumn.columnId === targetColumnId) {
+      return;
+    }
+
+    const table = tables.find((item) => item.table_id === tableId);
+    if (!table) {
+      return;
+    }
+
+    const orderedColumns = getOrderedColumns(table);
+    const sourceIndex = orderedColumns.findIndex(
+      (column) => column.column_id === draggedColumn.columnId,
+    );
+    const targetIndex = orderedColumns.findIndex(
+      (column) => column.column_id === targetColumnId,
+    );
+    if (sourceIndex < 0 || targetIndex < 0) {
+      return;
+    }
+
+    const nextOrderedColumns = [...orderedColumns];
+    const [movedColumn] = nextOrderedColumns.splice(sourceIndex, 1);
+    nextOrderedColumns.splice(targetIndex, 0, movedColumn);
+
+    await reorderTableColumns(
+      tableId,
+      nextOrderedColumns.map((column) => column.column_id),
+    );
   }
 
   async function createRelationship(payload: {
@@ -1500,6 +1882,23 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
           : "Unable to delete relationship.";
       setStatusMessage(message);
     }
+  }
+
+  function updateProjectView(nextView: ProjectView) {
+    if (nextView === initialView) {
+      return;
+    }
+
+    const basePath =
+      nextView === "erd"
+        ? `/project/${projectId}`
+        : `/project/${projectId}/dictionary`;
+    const queryString = initialShareSlug
+      ? `?share=${encodeURIComponent(initialShareSlug)}`
+      : "";
+    const targetPath = `${basePath}${queryString}`;
+
+    router.push(targetPath);
   }
 
   async function toggleVisibility() {
@@ -1883,6 +2282,19 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
           </div>
 
           <div className="flex items-center gap-1.5">
+            <div className="relative">
+              <select
+                value={initialView}
+                onChange={(event) =>
+                  updateProjectView(event.target.value as ProjectView)
+                }
+                className="h-7 rounded-md border border-slate-300 bg-white pl-2.5 pr-7 text-xs font-medium outline-none hover:bg-slate-50 focus:border-blue-500"
+              >
+                <option value="erd">ERD Diagram</option>
+                <option value="dictionary">Data Dictionary</option>
+              </select>
+              <ChevronDown className="pointer-events-none absolute top-1.5 right-2 h-3.5 w-3.5 text-slate-500" />
+            </div>
             <button
               type="button"
               onClick={toggleVisibility}
@@ -2136,19 +2548,49 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
                                 />
                               </button>
 
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setSelectedTableId(table.table_id);
-                                  setExpandedTables((current) => ({
-                                    ...current,
-                                    [table.table_id]: true,
-                                  }));
-                                }}
-                                className="min-w-0 flex-1 truncate text-left text-[15px] font-semibold"
-                              >
-                                {table.display_name ?? table.table_name}
-                              </button>
+                              {editingSidebarTableId === table.table_id ? (
+                                <input
+                                  ref={sidebarRenameInputRef}
+                                  value={editingSidebarTableName}
+                                  onChange={(event) =>
+                                    setEditingSidebarTableName(
+                                      event.target.value,
+                                    )
+                                  }
+                                  onBlur={() =>
+                                    void commitSidebarTableRename(table)
+                                  }
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter") {
+                                      event.preventDefault();
+                                      void commitSidebarTableRename(table);
+                                    }
+                                    if (event.key === "Escape") {
+                                      event.preventDefault();
+                                      cancelSidebarTableRename();
+                                    }
+                                  }}
+                                  className="min-w-0 flex-1 rounded-md border border-blue-300 bg-white px-2 py-1 text-[14px] font-semibold outline-none focus:border-blue-500"
+                                />
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedTableId(table.table_id);
+                                    setExpandedTables((current) => ({
+                                      ...current,
+                                      [table.table_id]: true,
+                                    }));
+                                  }}
+                                  onDoubleClick={() =>
+                                    beginSidebarTableRename(table)
+                                  }
+                                  className="min-w-0 flex-1 truncate text-left text-[15px] font-semibold"
+                                  title="Double-click to rename"
+                                >
+                                  {table.display_name ?? table.table_name}
+                                </button>
+                              )}
 
                               <button
                                 type="button"
@@ -2310,7 +2752,7 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
                                               className="rounded-md border border-slate-300 p-1 text-slate-500 hover:bg-slate-50 text-xs font-bold"
                                               title="Field attributes"
                                             >
-                                              ...
+                                              <MoreVertical className="mx-auto h-3.5 w-3.5" />
                                             </button>
                                           </div>
                                         );
@@ -2540,7 +2982,9 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
           </section>
 
           {isSidebarVisible && (
-            <div
+            <button
+              type="button"
+              aria-label="Resize sidebar"
               onMouseDown={() => setIsResizing(true)}
               className="absolute top-0 right-0 w-1 h-full cursor-col-resize bg-slate-200 hover:bg-blue-500 transition-colors"
               style={{ cursor: isResizing ? "col-resize" : "col-resize" }}
@@ -2558,42 +3002,815 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
           }}
         >
           <div className="h-full min-h-[500px]">
-            <DiagramCanvas
-              diagram={diagramQuery.data}
-              selectedTableId={selectedTableId}
-              onSelectTable={(tableId) => {
-                setSelectedTableId(tableId);
-                setExpandedTables((current) => ({
-                  ...current,
-                  [tableId]: true,
-                }));
-              }}
-              onTablePositionChange={updateTablePosition}
-              onCreateTableAt={(position) => openCreateTableDialog(position)}
-              onCreateRelationshipRequest={() => {
-                openCreateRelationshipDialog(selectedTableId);
-              }}
-              onEditTable={openEditTableDialog}
-              onDuplicateTable={(tableId) => void duplicateTable(tableId)}
-              onDeleteTable={(tableId) => void deleteTable(tableId)}
-              onAddRelationshipFromTable={(tableId) => {
-                openCreateRelationshipDialog(tableId);
-              }}
-              onManualConnect={(connection) => {
-                openCreateRelationshipDialog(
-                  connection.fromTableId,
-                  connection.toTableId,
-                );
-                setRelationshipComposer((current) => ({
-                  ...current,
-                  sourceColumnId: connection.fromColumnId,
-                  targetColumnId: connection.toColumnId,
-                }));
-              }}
-              onPairTableRequest={(sourceTableId, targetTableId) => {
-                openCreateRelationshipDialog(sourceTableId, targetTableId);
-              }}
-            />
+            {isDataDictionaryView ? (
+              <div className="h-full overflow-y-auto bg-slate-100/60 p-4">
+                <div className="mx-auto flex max-w-[1500px] flex-col gap-4 pb-10">
+                  {tables.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center">
+                      <p className="text-sm font-medium text-slate-700">
+                        No tables yet.
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Create a table to start your data dictionary.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => openCreateTableDialog()}
+                        className="mt-3 inline-flex items-center gap-1 rounded-md bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-700"
+                      >
+                        <Table2 className="h-3.5 w-3.5" />
+                        Add Table
+                      </button>
+                    </div>
+                  ) : null}
+
+                  {tables.map((table) => {
+                    const orderedColumns = getOrderedColumns(table);
+                    const isSelected = selectedTableId === table.table_id;
+                    const foreignKeyColumnIds = new Set(
+                      relationships
+                        .filter(
+                          (relationship) =>
+                            relationship.from_table_id === table.table_id,
+                        )
+                        .map((relationship) => relationship.from_column_id),
+                    );
+                    const referencedColumnIds = new Set(
+                      relationships
+                        .filter(
+                          (relationship) =>
+                            relationship.to_table_id === table.table_id,
+                        )
+                        .map((relationship) => relationship.to_column_id),
+                    );
+                    const columnDraft = newColumnByTable[table.table_id] ?? {
+                      name: "",
+                      dataType: "text",
+                      isNullable: true,
+                    };
+                    const tableDescriptionDraft =
+                      tableComments[table.table_id] ?? "";
+                    const isNewFieldVisible =
+                      openNewFieldTableId === table.table_id;
+                    const isNewRowActive =
+                      activeFieldRow?.tableId === table.table_id &&
+                      activeFieldRow.rowId === "new";
+
+                    return (
+                      <article
+                        key={table.table_id}
+                        className={`overflow-hidden rounded-xl border bg-white shadow-sm ${
+                          isSelected
+                            ? "border-blue-400 shadow-blue-100"
+                            : "border-slate-200"
+                        }`}
+                      >
+                        <header className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedTableId(table.table_id)}
+                            className="min-w-0 text-left"
+                          >
+                            <p className="truncate text-sm font-semibold text-slate-900">
+                              {table.display_name ?? table.table_name}
+                            </p>
+                            <p className="text-[11px] text-slate-500">
+                              {table.schema_name}.{table.table_name} •{" "}
+                              {orderedColumns.length} field
+                              {orderedColumns.length === 1 ? "" : "s"}
+                            </p>
+                          </button>
+
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setOpenNewFieldTableId((current) => {
+                                  const shouldOpen = current !== table.table_id;
+                                  setActiveFieldRow(
+                                    shouldOpen
+                                      ? {
+                                          tableId: table.table_id,
+                                          rowId: "new",
+                                        }
+                                      : null,
+                                  );
+                                  return shouldOpen ? table.table_id : null;
+                                });
+                              }}
+                              className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700 hover:bg-blue-100"
+                            >
+                              <Plus className="h-3.5 w-3.5" />
+                              {isNewFieldVisible
+                                ? "Hide New Field"
+                                : "Add New Field"}
+                            </button>
+
+                            <div
+                              className="relative"
+                              data-table-actions-menu="true"
+                            >
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setOpenTableActionsMenuId((current) =>
+                                    current === table.table_id
+                                      ? null
+                                      : table.table_id,
+                                  )
+                                }
+                                className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+                              >
+                                <Settings2 className="h-3.5 w-3.5" />
+                                Settings
+                                <ChevronDown className="h-3.5 w-3.5" />
+                              </button>
+
+                              {openTableActionsMenuId === table.table_id ? (
+                                <div className="absolute right-0 z-10 mt-1 w-44 rounded-md border border-slate-200 bg-white p-1 shadow-lg">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      openCreateRelationshipDialog(
+                                        table.table_id,
+                                      );
+                                      setOpenTableActionsMenuId(null);
+                                    }}
+                                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs font-medium text-slate-700 hover:bg-slate-100"
+                                  >
+                                    <Link2 className="h-3.5 w-3.5" />
+                                    Relation
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      openEditTableDialog(table.table_id);
+                                      setOpenTableActionsMenuId(null);
+                                    }}
+                                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs font-medium text-slate-700 hover:bg-slate-100"
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                    Edit Table
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      void deleteTable(table.table_id);
+                                      setOpenTableActionsMenuId(null);
+                                    }}
+                                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs font-medium text-red-600 hover:bg-red-50"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                    Delete
+                                  </button>
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+                        </header>
+
+                        <div className="flex items-center gap-2 border-b border-slate-200 bg-slate-50/70 px-3 py-1.5">
+                          <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                            Description
+                          </span>
+                          <input
+                            value={tableDescriptionDraft}
+                            onChange={(event) =>
+                              setTableComments((current) => ({
+                                ...current,
+                                [table.table_id]: event.target.value,
+                              }))
+                            }
+                            className="w-full rounded-md border border-transparent bg-transparent px-2 py-0.5 text-xs text-slate-600 outline-none focus:border-slate-300 focus:bg-white"
+                          />
+                        </div>
+
+                        <div className="overflow-x-auto">
+                          <table className="min-w-[1180px] w-full text-xs">
+                            <thead className="bg-slate-100 text-slate-600">
+                              <tr>
+                                <th className="w-10 px-2 py-2 text-center font-semibold">
+                                  Drag
+                                </th>
+                                <th className="w-20 px-2 py-2 text-left font-semibold">
+                                  Key
+                                </th>
+                                <th className="px-2 py-2 text-left font-semibold">
+                                  Column
+                                </th>
+                                <th className="w-28 px-2 py-2 text-left font-semibold">
+                                  Type
+                                </th>
+                                <th className="w-28 px-2 py-2 text-left font-semibold">
+                                  Not Null
+                                </th>
+                                <th className="w-56 px-2 py-2 text-left font-semibold">
+                                  Default
+                                </th>
+                                <th className="w-48 px-2 py-2 text-left font-semibold">
+                                  Example
+                                </th>
+                                <th className="w-52 px-2 py-2 text-left font-semibold">
+                                  Description
+                                </th>
+                                <th className="w-40 px-2 py-2 text-left font-semibold">
+                                  Actions
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {orderedColumns.map((column) => {
+                                const nameDraft =
+                                  columnNameDrafts[column.column_id] ??
+                                  column.column_name;
+                                const defaultDraft =
+                                  columnDefaultDrafts[column.column_id] ??
+                                  column.default_sql ??
+                                  "";
+                                const exampleDraft =
+                                  columnExampleDrafts[column.column_id] ??
+                                  column.example_value ??
+                                  "";
+                                const descriptionDraft =
+                                  columnComments[column.column_id] ?? "";
+                                const isDragging =
+                                  draggedColumn?.columnId === column.column_id;
+                                const isDragOver =
+                                  dragOverColumnId === column.column_id &&
+                                  draggedColumn?.columnId !== column.column_id;
+                                const isForeignKey = foreignKeyColumnIds.has(
+                                  column.column_id,
+                                );
+                                const isReferencedKey = referencedColumnIds.has(
+                                  column.column_id,
+                                );
+                                const isActiveRow =
+                                  activeFieldRow?.tableId === table.table_id &&
+                                  activeFieldRow.rowId === column.column_id;
+
+                                return (
+                                  <tr
+                                    key={column.column_id}
+                                    draggable
+                                    onClick={() =>
+                                      setActiveFieldRow({
+                                        tableId: table.table_id,
+                                        rowId: column.column_id,
+                                      })
+                                    }
+                                    onDragStart={(event) => {
+                                      setDraggedColumn({
+                                        tableId: table.table_id,
+                                        columnId: column.column_id,
+                                      });
+                                      event.dataTransfer.effectAllowed = "move";
+                                      event.dataTransfer.setData(
+                                        "text/plain",
+                                        column.column_id,
+                                      );
+                                    }}
+                                    onDragOver={(event) => {
+                                      event.preventDefault();
+                                      setDragOverColumnId(column.column_id);
+                                    }}
+                                    onDragLeave={() => {
+                                      setDragOverColumnId((current) =>
+                                        current === column.column_id
+                                          ? null
+                                          : current,
+                                      );
+                                    }}
+                                    onDrop={(event) => {
+                                      event.preventDefault();
+                                      void dropColumnOnTarget(
+                                        table.table_id,
+                                        column.column_id,
+                                      );
+                                      setDraggedColumn(null);
+                                      setDragOverColumnId(null);
+                                    }}
+                                    onDragEnd={() => {
+                                      setDraggedColumn(null);
+                                      setDragOverColumnId(null);
+                                    }}
+                                    className={`border-t border-slate-200 transition-colors ${
+                                      isDragOver
+                                        ? "bg-blue-50"
+                                        : isDragging
+                                          ? "bg-slate-100"
+                                          : isActiveRow
+                                            ? "bg-white"
+                                            : "bg-slate-50/50"
+                                    }`}
+                                  >
+                                    <td className="px-2 py-1.5 text-center">
+                                      <span className="inline-flex cursor-grab rounded p-1 text-slate-500 hover:bg-slate-100">
+                                        <GripVertical className="h-3.5 w-3.5" />
+                                      </span>
+                                    </td>
+                                    <td className="px-2 py-1.5">
+                                      <div className="flex flex-wrap gap-1">
+                                        {column.is_primary_key ? (
+                                          <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
+                                            PK
+                                          </span>
+                                        ) : null}
+                                        {isForeignKey ? (
+                                          <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">
+                                            FK
+                                          </span>
+                                        ) : null}
+                                        {isReferencedKey &&
+                                        !column.is_primary_key ? (
+                                          <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+                                            REF
+                                          </span>
+                                        ) : null}
+                                      </div>
+                                    </td>
+                                    <td className="px-2 py-1.5">
+                                      <input
+                                        value={nameDraft}
+                                        onChange={(event) =>
+                                          setColumnNameDrafts((current) => ({
+                                            ...current,
+                                            [column.column_id]:
+                                              event.target.value,
+                                          }))
+                                        }
+                                        onFocus={() =>
+                                          setActiveFieldRow({
+                                            tableId: table.table_id,
+                                            rowId: column.column_id,
+                                          })
+                                        }
+                                        onBlur={() =>
+                                          void commitColumnNameDraft(
+                                            table.table_id,
+                                            column,
+                                          )
+                                        }
+                                        onKeyDown={(event) => {
+                                          if (event.key === "Enter") {
+                                            event.preventDefault();
+                                            void commitColumnNameDraft(
+                                              table.table_id,
+                                              column,
+                                            );
+                                          }
+                                        }}
+                                        className={getDictionaryInputClass(
+                                          isActiveRow,
+                                        )}
+                                      />
+                                    </td>
+                                    <td className="px-2 py-1.5">
+                                      {isActiveRow ? (
+                                        <div className="relative">
+                                          <select
+                                            value={column.data_type}
+                                            onFocus={() =>
+                                              setActiveFieldRow({
+                                                tableId: table.table_id,
+                                                rowId: column.column_id,
+                                              })
+                                            }
+                                            onChange={(event) => {
+                                              void updateColumn(
+                                                table.table_id,
+                                                column.column_id,
+                                                {
+                                                  data_type: event.target.value,
+                                                },
+                                              );
+                                            }}
+                                            className={`${getDictionaryInputClass(
+                                              true,
+                                            )} appearance-none pr-5 text-[11px]`}
+                                          >
+                                            {postgresTypeOptions.map(
+                                              (option) => (
+                                                <option
+                                                  key={option}
+                                                  value={option}
+                                                >
+                                                  {option}
+                                                </option>
+                                              ),
+                                            )}
+                                          </select>
+                                          <ChevronDown className="pointer-events-none absolute top-1.5 right-1 h-3.5 w-3.5 text-slate-500" />
+                                        </div>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setActiveFieldRow({
+                                              tableId: table.table_id,
+                                              rowId: column.column_id,
+                                            })
+                                          }
+                                          className="w-full px-2 py-1 text-left text-[11px] text-slate-700"
+                                        >
+                                          {column.data_type}
+                                        </button>
+                                      )}
+                                    </td>
+                                    <td className="px-2 py-1.5">
+                                      {isActiveRow ? (
+                                        <div className="relative">
+                                          <select
+                                            value={
+                                              column.is_nullable
+                                                ? "nullable"
+                                                : "not_null"
+                                            }
+                                            onFocus={() =>
+                                              setActiveFieldRow({
+                                                tableId: table.table_id,
+                                                rowId: column.column_id,
+                                              })
+                                            }
+                                            onChange={(event) => {
+                                              void updateColumn(
+                                                table.table_id,
+                                                column.column_id,
+                                                {
+                                                  is_nullable:
+                                                    event.target.value ===
+                                                    "nullable",
+                                                },
+                                              );
+                                            }}
+                                            className={`${getDictionaryInputClass(
+                                              true,
+                                            )} appearance-none pr-5 text-[11px] font-semibold`}
+                                          >
+                                            <option value="not_null">
+                                              NOT NULL
+                                            </option>
+                                            <option value="nullable">
+                                              NULLABLE
+                                            </option>
+                                          </select>
+                                          <ChevronDown className="pointer-events-none absolute top-1.5 right-1 h-3.5 w-3.5 text-slate-500" />
+                                        </div>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setActiveFieldRow({
+                                              tableId: table.table_id,
+                                              rowId: column.column_id,
+                                            })
+                                          }
+                                          className="w-full px-2 py-1 text-left text-[11px] font-semibold text-slate-700"
+                                        >
+                                          {column.is_nullable
+                                            ? "NULLABLE"
+                                            : "NOT NULL"}
+                                        </button>
+                                      )}
+                                    </td>
+                                    <td className="px-2 py-1.5">
+                                      <input
+                                        value={defaultDraft}
+                                        onChange={(event) =>
+                                          setColumnDefaultDrafts((current) => ({
+                                            ...current,
+                                            [column.column_id]:
+                                              event.target.value,
+                                          }))
+                                        }
+                                        onFocus={() =>
+                                          setActiveFieldRow({
+                                            tableId: table.table_id,
+                                            rowId: column.column_id,
+                                          })
+                                        }
+                                        onBlur={() =>
+                                          void commitColumnDefaultDraft(
+                                            table.table_id,
+                                            column,
+                                          )
+                                        }
+                                        onKeyDown={(event) => {
+                                          if (event.key === "Enter") {
+                                            event.preventDefault();
+                                            void commitColumnDefaultDraft(
+                                              table.table_id,
+                                              column,
+                                            );
+                                          }
+                                        }}
+                                        className={getDictionaryInputClass(
+                                          isActiveRow,
+                                        )}
+                                      />
+                                    </td>
+                                    <td className="px-2 py-1.5">
+                                      <input
+                                        value={exampleDraft}
+                                        onChange={(event) =>
+                                          setColumnExampleDrafts((current) => ({
+                                            ...current,
+                                            [column.column_id]:
+                                              event.target.value,
+                                          }))
+                                        }
+                                        onFocus={() =>
+                                          setActiveFieldRow({
+                                            tableId: table.table_id,
+                                            rowId: column.column_id,
+                                          })
+                                        }
+                                        onBlur={() =>
+                                          void commitColumnExampleDraft(
+                                            table.table_id,
+                                            column,
+                                          )
+                                        }
+                                        onKeyDown={(event) => {
+                                          if (event.key === "Enter") {
+                                            event.preventDefault();
+                                            void commitColumnExampleDraft(
+                                              table.table_id,
+                                              column,
+                                            );
+                                          }
+                                        }}
+                                        className={getDictionaryInputClass(
+                                          isActiveRow,
+                                        )}
+                                      />
+                                    </td>
+                                    <td className="px-2 py-1.5">
+                                      <input
+                                        value={descriptionDraft}
+                                        onChange={(event) =>
+                                          setColumnComments((current) => ({
+                                            ...current,
+                                            [column.column_id]:
+                                              event.target.value,
+                                          }))
+                                        }
+                                        onFocus={() =>
+                                          setActiveFieldRow({
+                                            tableId: table.table_id,
+                                            rowId: column.column_id,
+                                          })
+                                        }
+                                        className={getDictionaryInputClass(
+                                          isActiveRow,
+                                        )}
+                                      />
+                                    </td>
+                                    <td className="px-2 py-1.5">
+                                      <div className="flex items-center gap-1">
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            void moveColumnByStep(
+                                              table.table_id,
+                                              column.column_id,
+                                              "up",
+                                            )
+                                          }
+                                          disabled={
+                                            orderedColumns[0]?.column_id ===
+                                            column.column_id
+                                          }
+                                          className="rounded-md border border-slate-300 p-1 text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                                          title="Move up"
+                                        >
+                                          <ArrowUp className="h-3.5 w-3.5" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            void moveColumnByStep(
+                                              table.table_id,
+                                              column.column_id,
+                                              "down",
+                                            )
+                                          }
+                                          disabled={
+                                            orderedColumns[
+                                              orderedColumns.length - 1
+                                            ]?.column_id === column.column_id
+                                          }
+                                          className="rounded-md border border-slate-300 p-1 text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                                          title="Move down"
+                                        >
+                                          <ArrowDown className="h-3.5 w-3.5" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setActiveFieldRow({
+                                              tableId: table.table_id,
+                                              rowId: column.column_id,
+                                            });
+                                            openFieldAttributes(table, column);
+                                          }}
+                                          className="rounded-md border border-slate-300 p-1 text-slate-600 hover:bg-slate-100"
+                                          title="Field attributes"
+                                        >
+                                          <MoreVertical className="h-3.5 w-3.5" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setActiveFieldRow({
+                                              tableId: table.table_id,
+                                              rowId: column.column_id,
+                                            });
+                                            void deleteColumnFromTable(
+                                              table.table_id,
+                                              column.column_id,
+                                            );
+                                          }}
+                                          className="rounded-md border border-red-200 p-1 text-red-600 hover:bg-red-50"
+                                          title="Delete field"
+                                        >
+                                          <Trash2 className="h-3.5 w-3.5" />
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+
+                              {isNewFieldVisible ? (
+                                <tr
+                                  onClick={() =>
+                                    setActiveFieldRow({
+                                      tableId: table.table_id,
+                                      rowId: "new",
+                                    })
+                                  }
+                                  className={`border-t border-slate-200 ${
+                                    isNewRowActive
+                                      ? "bg-blue-50/70"
+                                      : "bg-slate-50"
+                                  }`}
+                                >
+                                  <td className="px-2 py-2" />
+                                  <td className="px-2 py-2">
+                                    <span className="text-[11px] font-semibold text-blue-700">
+                                      NEW FIELD
+                                    </span>
+                                  </td>
+                                  <td className="px-2 py-2">
+                                    <input
+                                      value={columnDraft.name}
+                                      onChange={(event) =>
+                                        setNewColumnDraft(table.table_id, {
+                                          name: event.target.value,
+                                        })
+                                      }
+                                      onFocus={() =>
+                                        setActiveFieldRow({
+                                          tableId: table.table_id,
+                                          rowId: "new",
+                                        })
+                                      }
+                                      onKeyDown={(event) => {
+                                        if (event.key === "Enter") {
+                                          event.preventDefault();
+                                          void addColumnToTable(table.table_id);
+                                        }
+                                      }}
+                                      className={getDictionaryInputClass(
+                                        isNewRowActive,
+                                      )}
+                                    />
+                                  </td>
+                                  <td className="px-2 py-2">
+                                    <div className="relative">
+                                      <select
+                                        value={columnDraft.dataType}
+                                        onChange={(event) =>
+                                          setNewColumnDraft(table.table_id, {
+                                            dataType: event.target.value,
+                                          })
+                                        }
+                                        onFocus={() =>
+                                          setActiveFieldRow({
+                                            tableId: table.table_id,
+                                            rowId: "new",
+                                          })
+                                        }
+                                        className={`${getDictionaryInputClass(
+                                          isNewRowActive,
+                                        )} appearance-none pr-5 text-[11px]`}
+                                      >
+                                        {postgresTypeOptions.map((option) => (
+                                          <option key={option} value={option}>
+                                            {option}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <ChevronDown className="pointer-events-none absolute top-1.5 right-1 h-3.5 w-3.5 text-slate-500" />
+                                    </div>
+                                  </td>
+                                  <td className="px-2 py-2">
+                                    <div className="relative">
+                                      <select
+                                        value={
+                                          columnDraft.isNullable
+                                            ? "nullable"
+                                            : "not_null"
+                                        }
+                                        onChange={(event) =>
+                                          setNewColumnDraft(table.table_id, {
+                                            isNullable:
+                                              event.target.value === "nullable",
+                                          })
+                                        }
+                                        onFocus={() =>
+                                          setActiveFieldRow({
+                                            tableId: table.table_id,
+                                            rowId: "new",
+                                          })
+                                        }
+                                        className={`${getDictionaryInputClass(
+                                          isNewRowActive,
+                                        )} appearance-none pr-5 text-[11px] font-semibold`}
+                                      >
+                                        <option value="not_null">
+                                          NOT NULL
+                                        </option>
+                                        <option value="nullable">
+                                          NULLABLE
+                                        </option>
+                                      </select>
+                                      <ChevronDown className="pointer-events-none absolute top-1.5 right-1 h-3.5 w-3.5 text-slate-500" />
+                                    </div>
+                                  </td>
+                                  <td className="px-2 py-2" />
+                                  <td className="px-2 py-2" />
+                                  <td className="px-2 py-2" />
+                                  <td className="px-2 py-2">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        void addColumnToTable(table.table_id)
+                                      }
+                                      className="inline-flex items-center gap-1 rounded-md bg-slate-900 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-slate-700"
+                                    >
+                                      <Table2 className="h-3.5 w-3.5" />
+                                      Add New
+                                    </button>
+                                  </td>
+                                </tr>
+                              ) : null}
+                            </tbody>
+                          </table>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <DiagramCanvas
+                diagram={diagramQuery.data}
+                selectedTableId={selectedTableId}
+                onSelectTable={(tableId) => {
+                  setSelectedTableId(tableId);
+                  setExpandedTables((current) => ({
+                    ...current,
+                    [tableId]: true,
+                  }));
+                }}
+                onTablePositionChange={updateTablePosition}
+                onCreateTableAt={(position) => openCreateTableDialog(position)}
+                onCreateRelationshipRequest={() => {
+                  openCreateRelationshipDialog(selectedTableId);
+                }}
+                onEditTable={openEditTableDialog}
+                onDuplicateTable={(tableId) => void duplicateTable(tableId)}
+                onDeleteTable={(tableId) => void deleteTable(tableId)}
+                onAddRelationshipFromTable={(tableId) => {
+                  openCreateRelationshipDialog(tableId);
+                }}
+                onManualConnect={(connection) => {
+                  openCreateRelationshipDialog(
+                    connection.fromTableId,
+                    connection.toTableId,
+                  );
+                  setRelationshipComposer((current) => ({
+                    ...current,
+                    sourceColumnId: connection.fromColumnId,
+                    targetColumnId: connection.toColumnId,
+                  }));
+                }}
+                onPairTableRequest={(sourceTableId, targetTableId) => {
+                  openCreateRelationshipDialog(sourceTableId, targetTableId);
+                }}
+              />
+            )}
           </div>
         </section>
       </main>
@@ -3345,7 +4562,32 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
                 <label className="inline-flex items-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm">
                   <input
                     type="checkbox"
+                    checked={fieldAttributesDraft.primaryKey}
+                    onChange={(event) =>
+                      setFieldAttributesDraft((current) =>
+                        current
+                          ? {
+                              ...current,
+                              primaryKey: event.target.checked,
+                              unique: event.target.checked
+                                ? true
+                                : current.unique,
+                              isNullable: event.target.checked
+                                ? false
+                                : current.isNullable,
+                            }
+                          : current,
+                      )
+                    }
+                  />
+                  Primary Key
+                </label>
+
+                <label className="inline-flex items-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm">
+                  <input
+                    type="checkbox"
                     checked={fieldAttributesDraft.unique}
+                    disabled={fieldAttributesDraft.primaryKey}
                     onChange={(event) =>
                       setFieldAttributesDraft((current) =>
                         current
@@ -3379,23 +4621,51 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
                 </label>
               </div>
 
-              <label className="inline-flex items-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={fieldAttributesDraft.array}
+              <div className="grid grid-cols-2 gap-2">
+                <label className="inline-flex items-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={fieldAttributesDraft.array}
+                    onChange={(event) =>
+                      setFieldAttributesDraft((current) =>
+                        current
+                          ? {
+                              ...current,
+                              array: event.target.checked,
+                            }
+                          : current,
+                      )
+                    }
+                  />
+                  Array
+                </label>
+                <div />
+              </div>
+
+              <div>
+                <p className="mb-1 block text-xs font-semibold text-slate-600">
+                  Not Null
+                </p>
+                <select
+                  value={
+                    fieldAttributesDraft.isNullable ? "nullable" : "not_null"
+                  }
                   onChange={(event) =>
                     setFieldAttributesDraft((current) =>
                       current
                         ? {
                             ...current,
-                            array: event.target.checked,
+                            isNullable: event.target.value === "nullable",
                           }
                         : current,
                     )
                   }
-                />
-                Array
-              </label>
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-blue-500"
+                >
+                  <option value="not_null">NOT NULL</option>
+                  <option value="nullable">NULLABLE</option>
+                </select>
+              </div>
 
               <div>
                 <p className="mb-1 block text-xs font-semibold text-slate-600">
@@ -3413,7 +4683,26 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
                         : current,
                     )
                   }
-                  placeholder="No default"
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <p className="mb-1 block text-xs font-semibold text-slate-600">
+                  Example
+                </p>
+                <input
+                  value={fieldAttributesDraft.example}
+                  onChange={(event) =>
+                    setFieldAttributesDraft((current) =>
+                      current
+                        ? {
+                            ...current,
+                            example: event.target.value,
+                          }
+                        : current,
+                    )
+                  }
                   className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
                 />
               </div>
@@ -3434,8 +4723,8 @@ export function Dashboard({ projectId, initialShareSlug }: DashboardProps) {
                         : current,
                     )
                   }
-                  placeholder="No comments"
-                  className="h-20 w-full rounded-md border border-slate-300 p-2 text-sm outline-none focus:border-blue-500"
+                  placeholder="Notes or description"
+                  className="h-20 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
                 />
               </div>
             </div>

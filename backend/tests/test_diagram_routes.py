@@ -87,6 +87,7 @@ class StubDiagramService:
                             "default_sql": None,
                             "is_primary_key": True,
                             "is_unique": True,
+                            "example_value": None,
                         }
                     ],
                 }

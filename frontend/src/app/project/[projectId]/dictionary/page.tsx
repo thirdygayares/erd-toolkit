@@ -1,14 +1,14 @@
 import { Dashboard } from "@/components/project/Dashboard";
 
-interface ProjectPageProps {
+interface ProjectDictionaryPageProps {
   params: Promise<{ projectId: string }>;
   searchParams: Promise<{ share?: string }>;
 }
 
-export default async function ProjectPage({
+export default async function ProjectDictionaryPage({
   params,
   searchParams,
-}: ProjectPageProps) {
+}: ProjectDictionaryPageProps) {
   const { projectId } = await params;
   const { share } = await searchParams;
 
@@ -16,7 +16,7 @@ export default async function ProjectPage({
     <Dashboard
       projectId={projectId}
       initialShareSlug={share}
-      initialView="erd"
+      initialView="dictionary"
     />
   );
 }

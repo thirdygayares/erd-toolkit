@@ -54,7 +54,12 @@ class DiagramService:
                 tables = cur.fetchall()
 
                 cur.execute(sql.GET_COLUMNS_BY_DIAGRAM, {"diagram_id": diagram_id})
-                columns = cur.fetchall()
+                raw_columns = cur.fetchall()
+                columns: list[dict] = []
+                for column in raw_columns:
+                    normalized = dict(column)
+                    normalized.setdefault("example_value", None)
+                    columns.append(normalized)
 
                 cur.execute(sql.GET_RELATIONSHIPS, {"diagram_id": diagram_id})
                 relationships = cur.fetchall()

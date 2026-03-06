@@ -19,9 +19,7 @@ function getResponseDetail(data: unknown): string | null {
     }
     if (Array.isArray(detail)) {
       const joined = detail
-        .map((item) =>
-          typeof item === "string" ? item : JSON.stringify(item),
-        )
+        .map((item) => (typeof item === "string" ? item : JSON.stringify(item)))
         .filter(Boolean)
         .join("; ");
       if (joined) {
