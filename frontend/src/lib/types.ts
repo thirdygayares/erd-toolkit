@@ -118,6 +118,7 @@ export interface ColumnCreateRequest {
   default_sql?: string | null;
   is_primary_key: boolean;
   is_unique: boolean;
+  example_value?: string | null;
 }
 
 export interface ColumnUpdateRequest {
@@ -129,6 +130,7 @@ export interface ColumnUpdateRequest {
   default_sql?: string | null;
   is_primary_key?: boolean | null;
   is_unique?: boolean | null;
+  example_value?: string | null;
 }
 
 export interface ColumnMutationResponse {
@@ -142,6 +144,7 @@ export interface ColumnMutationResponse {
   default_sql: string | null;
   is_primary_key: boolean;
   is_unique: boolean;
+  example_value: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -200,6 +203,7 @@ export interface ColumnResponse {
   default_sql: string | null;
   is_primary_key: boolean;
   is_unique: boolean;
+  example_value: string | null;
 }
 
 export interface TableResponse {

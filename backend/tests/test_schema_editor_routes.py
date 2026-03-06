@@ -53,6 +53,7 @@ class StubSchemaEditorService:
             "default_sql": payload.default_sql,
             "is_primary_key": payload.is_primary_key,
             "is_unique": payload.is_unique,
+            "example_value": payload.example_value,
             "created_at": datetime.now(timezone.utc),
             "updated_at": datetime.now(timezone.utc),
         }
@@ -69,6 +70,7 @@ class StubSchemaEditorService:
             "default_sql": payload.default_sql,
             "is_primary_key": payload.is_primary_key if payload.is_primary_key is not None else True,
             "is_unique": payload.is_unique if payload.is_unique is not None else True,
+            "example_value": payload.example_value,
             "created_at": datetime.now(timezone.utc),
             "updated_at": datetime.now(timezone.utc),
         }
@@ -85,6 +87,7 @@ class StubSchemaEditorService:
             "default_sql": None,
             "is_primary_key": False,
             "is_unique": False,
+            "example_value": None,
             "created_at": datetime.now(timezone.utc),
             "updated_at": datetime.now(timezone.utc),
         }

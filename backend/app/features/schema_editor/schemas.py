@@ -46,6 +46,7 @@ class ColumnCreateRequest(BaseModel):
     default_sql: str | None = None
     is_primary_key: bool = False
     is_unique: bool = False
+    example_value: str | None = None
 
 
 class ColumnUpdateRequest(BaseModel):
@@ -57,6 +58,7 @@ class ColumnUpdateRequest(BaseModel):
     default_sql: str | None = None
     is_primary_key: bool | None = None
     is_unique: bool | None = None
+    example_value: str | None = None
 
 
 class ColumnMutationResponse(BaseModel):
@@ -70,6 +72,7 @@ class ColumnMutationResponse(BaseModel):
     default_sql: str | None
     is_primary_key: bool
     is_unique: bool
+    example_value: str | None = None
     created_at: datetime
     updated_at: datetime
 

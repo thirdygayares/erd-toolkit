@@ -12,5 +12,11 @@ export default async function ProjectPage({
   const { projectId } = await params;
   const { share } = await searchParams;
 
-  return <Dashboard projectId={projectId} initialShareSlug={share} />;
+  return (
+    <Dashboard
+      projectId={projectId}
+      initialShareSlug={share}
+      initialView="erd"
+    />
+  );
 }

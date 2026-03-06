@@ -35,11 +35,44 @@ FROM api.fn_column_create(
     p_is_nullable => %(is_nullable)s,
     p_default_sql => %(default_sql)s,
     p_is_primary_key => %(is_primary_key)s,
+    p_is_unique => %(is_unique)s,
+    p_example_value => %(example_value)s::text
+);
+"""
+
+INSERT_COLUMN_LEGACY = """
+SELECT *
+FROM api.fn_column_create(
+    p_table_id => %(table_id)s::uuid,
+    p_column_name => %(column_name)s,
+    p_ordinal_position => %(ordinal_position)s,
+    p_data_type => %(data_type)s,
+    p_udt_name => %(udt_name)s,
+    p_is_nullable => %(is_nullable)s,
+    p_default_sql => %(default_sql)s,
+    p_is_primary_key => %(is_primary_key)s,
     p_is_unique => %(is_unique)s
 );
 """
 
 UPDATE_COLUMN = """
+SELECT *
+FROM api.fn_column_update(
+    p_table_id => %(table_id)s::uuid,
+    p_column_id => %(column_id)s::uuid,
+    p_column_name => %(column_name)s,
+    p_ordinal_position => %(ordinal_position)s,
+    p_data_type => %(data_type)s,
+    p_udt_name => %(udt_name)s,
+    p_is_nullable => %(is_nullable)s,
+    p_default_sql => %(default_sql)s,
+    p_is_primary_key => %(is_primary_key)s,
+    p_is_unique => %(is_unique)s,
+    p_example_value => %(example_value)s::text
+);
+"""
+
+UPDATE_COLUMN_LEGACY = """
 SELECT *
 FROM api.fn_column_update(
     p_table_id => %(table_id)s::uuid,

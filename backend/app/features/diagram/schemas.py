@@ -38,6 +38,7 @@ class ColumnResponse(BaseModel):
     default_sql: str | None
     is_primary_key: bool
     is_unique: bool
+    example_value: str | None = None
 
 
 class TableResponse(BaseModel):
