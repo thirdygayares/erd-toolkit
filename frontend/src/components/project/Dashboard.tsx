@@ -19,9 +19,11 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Pencil,
+  Plus,
   RefreshCw,
   Save,
   Search,
+  Settings2,
   Table2,
   Trash2,
   Unlock,
@@ -135,12 +137,14 @@ interface NormalizedTableDialogField extends TableDialogFieldDraft {
 interface FieldAttributesDraft {
   tableId: string;
   columnId: string;
+  primaryKey: boolean;
   unique: boolean;
   autoIncrement: boolean;
   array: boolean;
   isNullable: boolean;
   defaultValue: string;
   example: string;
+  comments: string;
   baseType: string;
 }
 
@@ -268,6 +272,7 @@ export function Dashboard({
   const [sidebarPanelWidth, setSidebarPanelWidth] = useState(300);
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
+  const sidebarRenameInputRef = useRef<HTMLInputElement>(null);
   const [tableFilter, setTableFilter] = useState("");
   const [relationFilter, setRelationFilter] = useState("");
 
@@ -305,6 +310,9 @@ export function Dashboard({
   const [tableComments, setTableComments] = useState<Record<string, string>>(
     {},
   );
+  const [columnComments, setColumnComments] = useState<Record<string, string>>(
+    {},
+  );
   const [columnNameDrafts, setColumnNameDrafts] = useState<
     Record<string, string>
   >({});
@@ -319,6 +327,20 @@ export function Dashboard({
     columnId: string;
   } | null>(null);
   const [dragOverColumnId, setDragOverColumnId] = useState<string | null>(null);
+  const [activeFieldRow, setActiveFieldRow] = useState<{
+    tableId: string;
+    rowId: string;
+  } | null>(null);
+  const [openNewFieldTableId, setOpenNewFieldTableId] = useState<string | null>(
+    null,
+  );
+  const [openTableActionsMenuId, setOpenTableActionsMenuId] = useState<
+    string | null
+  >(null);
+  const [editingSidebarTableId, setEditingSidebarTableId] = useState<
+    string | null
+  >(null);
+  const [editingSidebarTableName, setEditingSidebarTableName] = useState("");
 
   const [newColumnByTable, setNewColumnByTable] = useState<
     Record<string, { name: string; dataType: string; isNullable: boolean }>
@@ -482,6 +504,33 @@ export function Dashboard({
     importPassword,
     importSslMode,
   ]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const onDocumentMouseDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("[data-table-actions-menu='true']")) {
+        return;
+      }
+      setOpenTableActionsMenuId(null);
+    };
+
+    document.addEventListener("mousedown", onDocumentMouseDown);
+    return () => {
+      document.removeEventListener("mousedown", onDocumentMouseDown);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!editingSidebarTableId) {
+      return;
+    }
+    sidebarRenameInputRef.current?.focus();
+    sidebarRenameInputRef.current?.select();
+  }, [editingSidebarTableId]);
 
   const isWorking =
     createDiagramMutation.isPending ||
@@ -786,6 +835,53 @@ export function Dashboard({
     );
     setTableDialogOriginalColumns(orderedColumns);
     setTableDialogFields(orderedColumns.map(mapColumnToDialogField));
+  }
+
+  function beginSidebarTableRename(table: TableResponse) {
+    setSelectedTableId(table.table_id);
+    setEditingSidebarTableId(table.table_id);
+    setEditingSidebarTableName(table.display_name ?? table.table_name);
+  }
+
+  function cancelSidebarTableRename() {
+    setEditingSidebarTableId(null);
+    setEditingSidebarTableName("");
+  }
+
+  async function commitSidebarTableRename(table: TableResponse) {
+    if (!diagramId) {
+      cancelSidebarTableRename();
+      return;
+    }
+
+    const nextDisplayName = editingSidebarTableName.trim();
+    if (!nextDisplayName) {
+      cancelSidebarTableRename();
+      return;
+    }
+
+    const currentDisplayName = table.display_name ?? table.table_name;
+    if (nextDisplayName === currentDisplayName) {
+      cancelSidebarTableRename();
+      return;
+    }
+
+    try {
+      await updateTableMutation.mutateAsync({
+        diagramId,
+        tableId: table.table_id,
+        payload: {
+          display_name: nextDisplayName,
+        },
+      });
+      setStatusMessage("Table name updated.");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to rename table.";
+      setStatusMessage(message);
+    } finally {
+      cancelSidebarTableRename();
+    }
   }
 
   function closeTableDialog() {
@@ -1218,6 +1314,8 @@ export function Dashboard({
         dataType: draft.dataType,
         isNullable: draft.isNullable,
       });
+      setOpenNewFieldTableId(null);
+      setActiveFieldRow(null);
       setStatusMessage(`Column created: ${createdColumn.column_name}`);
     } catch (error) {
       const message =
@@ -1279,12 +1377,14 @@ export function Dashboard({
     setFieldAttributesDraft({
       tableId: table.table_id,
       columnId: column.column_id,
+      primaryKey: column.is_primary_key,
       unique: column.is_unique,
       autoIncrement: inferAutoIncrement(column.default_sql),
       array: column.data_type.endsWith("[]"),
       isNullable: column.is_nullable,
       defaultValue: column.default_sql ?? "",
       example: column.example_value ?? "",
+      comments: columnComments[column.column_id] ?? "",
       baseType,
     });
   }
@@ -1315,16 +1415,22 @@ export function Dashboard({
       ? "generated by default as identity"
       : fieldAttributesDraft.defaultValue.trim() || null;
     const nextExample = fieldAttributesDraft.example;
+    const nextIsPrimaryKey = fieldAttributesDraft.primaryKey;
+    const nextIsUnique = nextIsPrimaryKey ? true : fieldAttributesDraft.unique;
+    const nextIsNullable = nextIsPrimaryKey
+      ? false
+      : fieldAttributesDraft.autoIncrement
+        ? false
+        : fieldAttributesDraft.isNullable;
 
     await updateColumn(
       fieldAttributesDraft.tableId,
       fieldAttributesDraft.columnId,
       {
         data_type: dataType,
-        is_unique: fieldAttributesDraft.unique,
-        is_nullable: fieldAttributesDraft.autoIncrement
-          ? false
-          : fieldAttributesDraft.isNullable,
+        is_primary_key: nextIsPrimaryKey,
+        is_unique: nextIsUnique,
+        is_nullable: nextIsNullable,
         default_sql: nextDefault,
         example_value: nextExample,
       },
@@ -1341,6 +1447,10 @@ export function Dashboard({
       ...current,
       [fieldAttributesDraft.columnId]: nextExample,
     }));
+    setColumnComments((current) => ({
+      ...current,
+      [fieldAttributesDraft.columnId]: fieldAttributesDraft.comments,
+    }));
 
     setFieldAttributesDraft(null);
   }
@@ -1349,6 +1459,14 @@ export function Dashboard({
     return [...table.columns].sort(
       (left, right) => left.ordinal_position - right.ordinal_position,
     );
+  }
+
+  function getDictionaryInputClass(isActive: boolean) {
+    return `w-full rounded-md px-2 py-1 text-xs outline-none transition-colors ${
+      isActive
+        ? "border border-slate-300 bg-white focus:border-blue-500"
+        : "border border-transparent bg-transparent text-slate-700 hover:bg-slate-100 focus:border-slate-300 focus:bg-white"
+    }`;
   }
 
   async function commitColumnNameDraft(
@@ -2430,19 +2548,49 @@ export function Dashboard({
                                 />
                               </button>
 
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setSelectedTableId(table.table_id);
-                                  setExpandedTables((current) => ({
-                                    ...current,
-                                    [table.table_id]: true,
-                                  }));
-                                }}
-                                className="min-w-0 flex-1 truncate text-left text-[15px] font-semibold"
-                              >
-                                {table.display_name ?? table.table_name}
-                              </button>
+                              {editingSidebarTableId === table.table_id ? (
+                                <input
+                                  ref={sidebarRenameInputRef}
+                                  value={editingSidebarTableName}
+                                  onChange={(event) =>
+                                    setEditingSidebarTableName(
+                                      event.target.value,
+                                    )
+                                  }
+                                  onBlur={() =>
+                                    void commitSidebarTableRename(table)
+                                  }
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter") {
+                                      event.preventDefault();
+                                      void commitSidebarTableRename(table);
+                                    }
+                                    if (event.key === "Escape") {
+                                      event.preventDefault();
+                                      cancelSidebarTableRename();
+                                    }
+                                  }}
+                                  className="min-w-0 flex-1 rounded-md border border-blue-300 bg-white px-2 py-1 text-[14px] font-semibold outline-none focus:border-blue-500"
+                                />
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedTableId(table.table_id);
+                                    setExpandedTables((current) => ({
+                                      ...current,
+                                      [table.table_id]: true,
+                                    }));
+                                  }}
+                                  onDoubleClick={() =>
+                                    beginSidebarTableRename(table)
+                                  }
+                                  className="min-w-0 flex-1 truncate text-left text-[15px] font-semibold"
+                                  title="Double-click to rename"
+                                >
+                                  {table.display_name ?? table.table_name}
+                                </button>
+                              )}
 
                               <button
                                 type="button"
@@ -2900,6 +3048,13 @@ export function Dashboard({
                       dataType: "text",
                       isNullable: true,
                     };
+                    const tableDescriptionDraft =
+                      tableComments[table.table_id] ?? "";
+                    const isNewFieldVisible =
+                      openNewFieldTableId === table.table_id;
+                    const isNewRowActive =
+                      activeFieldRow?.tableId === table.table_id &&
+                      activeFieldRow.rowId === "new";
 
                     return (
                       <article
@@ -2926,40 +3081,112 @@ export function Dashboard({
                             </p>
                           </button>
 
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-1.5">
                             <button
                               type="button"
-                              onClick={() =>
-                                openCreateRelationshipDialog(table.table_id)
-                              }
-                              className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+                              onClick={() => {
+                                setOpenNewFieldTableId((current) => {
+                                  const shouldOpen = current !== table.table_id;
+                                  setActiveFieldRow(
+                                    shouldOpen
+                                      ? {
+                                          tableId: table.table_id,
+                                          rowId: "new",
+                                        }
+                                      : null,
+                                  );
+                                  return shouldOpen ? table.table_id : null;
+                                });
+                              }}
+                              className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700 hover:bg-blue-100"
                             >
-                              <Link2 className="h-3.5 w-3.5" />
-                              Relation
+                              <Plus className="h-3.5 w-3.5" />
+                              {isNewFieldVisible
+                                ? "Hide New Field"
+                                : "Add New Field"}
                             </button>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                openEditTableDialog(table.table_id)
-                              }
-                              className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+
+                            <div
+                              className="relative"
+                              data-table-actions-menu="true"
                             >
-                              <Pencil className="h-3.5 w-3.5" />
-                              Edit Table
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void deleteTable(table.table_id)}
-                              className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-white px-2 py-1 text-[11px] font-semibold text-red-600 hover:bg-red-50"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                              Delete
-                            </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setOpenTableActionsMenuId((current) =>
+                                    current === table.table_id
+                                      ? null
+                                      : table.table_id,
+                                  )
+                                }
+                                className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+                              >
+                                <Settings2 className="h-3.5 w-3.5" />
+                                Settings
+                                <ChevronDown className="h-3.5 w-3.5" />
+                              </button>
+
+                              {openTableActionsMenuId === table.table_id ? (
+                                <div className="absolute right-0 z-10 mt-1 w-44 rounded-md border border-slate-200 bg-white p-1 shadow-lg">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      openCreateRelationshipDialog(
+                                        table.table_id,
+                                      );
+                                      setOpenTableActionsMenuId(null);
+                                    }}
+                                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs font-medium text-slate-700 hover:bg-slate-100"
+                                  >
+                                    <Link2 className="h-3.5 w-3.5" />
+                                    Relation
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      openEditTableDialog(table.table_id);
+                                      setOpenTableActionsMenuId(null);
+                                    }}
+                                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs font-medium text-slate-700 hover:bg-slate-100"
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                    Edit Table
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      void deleteTable(table.table_id);
+                                      setOpenTableActionsMenuId(null);
+                                    }}
+                                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs font-medium text-red-600 hover:bg-red-50"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                    Delete
+                                  </button>
+                                </div>
+                              ) : null}
+                            </div>
                           </div>
                         </header>
 
+                        <div className="flex items-center gap-2 border-b border-slate-200 bg-slate-50/70 px-3 py-1.5">
+                          <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                            Description
+                          </span>
+                          <input
+                            value={tableDescriptionDraft}
+                            onChange={(event) =>
+                              setTableComments((current) => ({
+                                ...current,
+                                [table.table_id]: event.target.value,
+                              }))
+                            }
+                            className="w-full rounded-md border border-transparent bg-transparent px-2 py-0.5 text-xs text-slate-600 outline-none focus:border-slate-300 focus:bg-white"
+                          />
+                        </div>
+
                         <div className="overflow-x-auto">
-                          <table className="min-w-[1060px] w-full text-xs">
+                          <table className="min-w-[1180px] w-full text-xs">
                             <thead className="bg-slate-100 text-slate-600">
                               <tr>
                                 <th className="w-10 px-2 py-2 text-center font-semibold">
@@ -2971,19 +3198,22 @@ export function Dashboard({
                                 <th className="px-2 py-2 text-left font-semibold">
                                   Column
                                 </th>
-                                <th className="w-36 px-2 py-2 text-left font-semibold">
+                                <th className="w-28 px-2 py-2 text-left font-semibold">
                                   Type
                                 </th>
-                                <th className="w-32 px-2 py-2 text-left font-semibold">
+                                <th className="w-28 px-2 py-2 text-left font-semibold">
                                   Not Null
                                 </th>
                                 <th className="w-56 px-2 py-2 text-left font-semibold">
                                   Default
                                 </th>
-                                <th className="w-64 px-2 py-2 text-left font-semibold">
+                                <th className="w-48 px-2 py-2 text-left font-semibold">
                                   Example
                                 </th>
-                                <th className="w-36 px-2 py-2 text-left font-semibold">
+                                <th className="w-52 px-2 py-2 text-left font-semibold">
+                                  Description
+                                </th>
+                                <th className="w-40 px-2 py-2 text-left font-semibold">
                                   Actions
                                 </th>
                               </tr>
@@ -3001,6 +3231,8 @@ export function Dashboard({
                                   columnExampleDrafts[column.column_id] ??
                                   column.example_value ??
                                   "";
+                                const descriptionDraft =
+                                  columnComments[column.column_id] ?? "";
                                 const isDragging =
                                   draggedColumn?.columnId === column.column_id;
                                 const isDragOver =
@@ -3012,11 +3244,20 @@ export function Dashboard({
                                 const isReferencedKey = referencedColumnIds.has(
                                   column.column_id,
                                 );
+                                const isActiveRow =
+                                  activeFieldRow?.tableId === table.table_id &&
+                                  activeFieldRow.rowId === column.column_id;
 
                                 return (
                                   <tr
                                     key={column.column_id}
                                     draggable
+                                    onClick={() =>
+                                      setActiveFieldRow({
+                                        tableId: table.table_id,
+                                        rowId: column.column_id,
+                                      })
+                                    }
                                     onDragStart={(event) => {
                                       setDraggedColumn({
                                         tableId: table.table_id,
@@ -3057,7 +3298,9 @@ export function Dashboard({
                                         ? "bg-blue-50"
                                         : isDragging
                                           ? "bg-slate-100"
-                                          : "bg-white"
+                                          : isActiveRow
+                                            ? "bg-white"
+                                            : "bg-slate-50/50"
                                     }`}
                                   >
                                     <td className="px-2 py-1.5 text-center">
@@ -3095,6 +3338,12 @@ export function Dashboard({
                                               event.target.value,
                                           }))
                                         }
+                                        onFocus={() =>
+                                          setActiveFieldRow({
+                                            tableId: table.table_id,
+                                            rowId: column.column_id,
+                                          })
+                                        }
                                         onBlur={() =>
                                           void commitColumnNameDraft(
                                             table.table_id,
@@ -3110,57 +3359,118 @@ export function Dashboard({
                                             );
                                           }
                                         }}
-                                        className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs outline-none focus:border-blue-500"
+                                        className={getDictionaryInputClass(
+                                          isActiveRow,
+                                        )}
                                       />
                                     </td>
                                     <td className="px-2 py-1.5">
-                                      <select
-                                        value={column.data_type}
-                                        onChange={(event) => {
-                                          void updateColumn(
-                                            table.table_id,
-                                            column.column_id,
-                                            {
-                                              data_type: event.target.value,
-                                            },
-                                          );
-                                        }}
-                                        className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs outline-none focus:border-blue-500"
-                                      >
-                                        {postgresTypeOptions.map((option) => (
-                                          <option key={option} value={option}>
-                                            {option}
-                                          </option>
-                                        ))}
-                                      </select>
+                                      {isActiveRow ? (
+                                        <div className="relative">
+                                          <select
+                                            value={column.data_type}
+                                            onFocus={() =>
+                                              setActiveFieldRow({
+                                                tableId: table.table_id,
+                                                rowId: column.column_id,
+                                              })
+                                            }
+                                            onChange={(event) => {
+                                              void updateColumn(
+                                                table.table_id,
+                                                column.column_id,
+                                                {
+                                                  data_type: event.target.value,
+                                                },
+                                              );
+                                            }}
+                                            className={`${getDictionaryInputClass(
+                                              true,
+                                            )} appearance-none pr-5 text-[11px]`}
+                                          >
+                                            {postgresTypeOptions.map(
+                                              (option) => (
+                                                <option
+                                                  key={option}
+                                                  value={option}
+                                                >
+                                                  {option}
+                                                </option>
+                                              ),
+                                            )}
+                                          </select>
+                                          <ChevronDown className="pointer-events-none absolute top-1.5 right-1 h-3.5 w-3.5 text-slate-500" />
+                                        </div>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setActiveFieldRow({
+                                              tableId: table.table_id,
+                                              rowId: column.column_id,
+                                            })
+                                          }
+                                          className="w-full px-2 py-1 text-left text-[11px] text-slate-700"
+                                        >
+                                          {column.data_type}
+                                        </button>
+                                      )}
                                     </td>
                                     <td className="px-2 py-1.5">
-                                      <select
-                                        value={
-                                          column.is_nullable
-                                            ? "nullable"
-                                            : "not_null"
-                                        }
-                                        onChange={(event) => {
-                                          void updateColumn(
-                                            table.table_id,
-                                            column.column_id,
-                                            {
-                                              is_nullable:
-                                                event.target.value ===
-                                                "nullable",
-                                            },
-                                          );
-                                        }}
-                                        className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold outline-none focus:border-blue-500"
-                                      >
-                                        <option value="not_null">
-                                          NOT NULL
-                                        </option>
-                                        <option value="nullable">
-                                          NULLABLE
-                                        </option>
-                                      </select>
+                                      {isActiveRow ? (
+                                        <div className="relative">
+                                          <select
+                                            value={
+                                              column.is_nullable
+                                                ? "nullable"
+                                                : "not_null"
+                                            }
+                                            onFocus={() =>
+                                              setActiveFieldRow({
+                                                tableId: table.table_id,
+                                                rowId: column.column_id,
+                                              })
+                                            }
+                                            onChange={(event) => {
+                                              void updateColumn(
+                                                table.table_id,
+                                                column.column_id,
+                                                {
+                                                  is_nullable:
+                                                    event.target.value ===
+                                                    "nullable",
+                                                },
+                                              );
+                                            }}
+                                            className={`${getDictionaryInputClass(
+                                              true,
+                                            )} appearance-none pr-5 text-[11px] font-semibold`}
+                                          >
+                                            <option value="not_null">
+                                              NOT NULL
+                                            </option>
+                                            <option value="nullable">
+                                              NULLABLE
+                                            </option>
+                                          </select>
+                                          <ChevronDown className="pointer-events-none absolute top-1.5 right-1 h-3.5 w-3.5 text-slate-500" />
+                                        </div>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setActiveFieldRow({
+                                              tableId: table.table_id,
+                                              rowId: column.column_id,
+                                            })
+                                          }
+                                          className="w-full px-2 py-1 text-left text-[11px] font-semibold text-slate-700"
+                                        >
+                                          {column.is_nullable
+                                            ? "NULLABLE"
+                                            : "NOT NULL"}
+                                        </button>
+                                      )}
                                     </td>
                                     <td className="px-2 py-1.5">
                                       <input
@@ -3171,6 +3481,12 @@ export function Dashboard({
                                             [column.column_id]:
                                               event.target.value,
                                           }))
+                                        }
+                                        onFocus={() =>
+                                          setActiveFieldRow({
+                                            tableId: table.table_id,
+                                            rowId: column.column_id,
+                                          })
                                         }
                                         onBlur={() =>
                                           void commitColumnDefaultDraft(
@@ -3187,8 +3503,9 @@ export function Dashboard({
                                             );
                                           }
                                         }}
-                                        placeholder="No default"
-                                        className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs outline-none focus:border-blue-500"
+                                        className={getDictionaryInputClass(
+                                          isActiveRow,
+                                        )}
                                       />
                                     </td>
                                     <td className="px-2 py-1.5">
@@ -3200,6 +3517,12 @@ export function Dashboard({
                                             [column.column_id]:
                                               event.target.value,
                                           }))
+                                        }
+                                        onFocus={() =>
+                                          setActiveFieldRow({
+                                            tableId: table.table_id,
+                                            rowId: column.column_id,
+                                          })
                                         }
                                         onBlur={() =>
                                           void commitColumnExampleDraft(
@@ -3216,8 +3539,30 @@ export function Dashboard({
                                             );
                                           }
                                         }}
-                                        placeholder="Sample value"
-                                        className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs outline-none focus:border-blue-500"
+                                        className={getDictionaryInputClass(
+                                          isActiveRow,
+                                        )}
+                                      />
+                                    </td>
+                                    <td className="px-2 py-1.5">
+                                      <input
+                                        value={descriptionDraft}
+                                        onChange={(event) =>
+                                          setColumnComments((current) => ({
+                                            ...current,
+                                            [column.column_id]:
+                                              event.target.value,
+                                          }))
+                                        }
+                                        onFocus={() =>
+                                          setActiveFieldRow({
+                                            tableId: table.table_id,
+                                            rowId: column.column_id,
+                                          })
+                                        }
+                                        className={getDictionaryInputClass(
+                                          isActiveRow,
+                                        )}
                                       />
                                     </td>
                                     <td className="px-2 py-1.5">
@@ -3261,9 +3606,13 @@ export function Dashboard({
                                         </button>
                                         <button
                                           type="button"
-                                          onClick={() =>
-                                            openFieldAttributes(table, column)
-                                          }
+                                          onClick={() => {
+                                            setActiveFieldRow({
+                                              tableId: table.table_id,
+                                              rowId: column.column_id,
+                                            });
+                                            openFieldAttributes(table, column);
+                                          }}
                                           className="rounded-md border border-slate-300 p-1 text-slate-600 hover:bg-slate-100"
                                           title="Field attributes"
                                         >
@@ -3271,12 +3620,16 @@ export function Dashboard({
                                         </button>
                                         <button
                                           type="button"
-                                          onClick={() =>
+                                          onClick={() => {
+                                            setActiveFieldRow({
+                                              tableId: table.table_id,
+                                              rowId: column.column_id,
+                                            });
                                             void deleteColumnFromTable(
                                               table.table_id,
                                               column.column_id,
-                                            )
-                                          }
+                                            );
+                                          }}
                                           className="rounded-md border border-red-200 p-1 text-red-600 hover:bg-red-50"
                                           title="Delete field"
                                         >
@@ -3288,90 +3641,130 @@ export function Dashboard({
                                 );
                               })}
 
-                              <tr className="border-t border-slate-200 bg-slate-50">
-                                <td className="px-2 py-2" />
-                                <td className="px-2 py-2">
-                                  <span className="text-[10px] font-semibold text-slate-400">
-                                    NEW
-                                  </span>
-                                </td>
-                                <td className="px-2 py-2">
-                                  <input
-                                    value={columnDraft.name}
-                                    onChange={(event) =>
-                                      setNewColumnDraft(table.table_id, {
-                                        name: event.target.value,
-                                      })
-                                    }
-                                    onKeyDown={(event) => {
-                                      if (event.key === "Enter") {
-                                        event.preventDefault();
-                                        void addColumnToTable(table.table_id);
+                              {isNewFieldVisible ? (
+                                <tr
+                                  onClick={() =>
+                                    setActiveFieldRow({
+                                      tableId: table.table_id,
+                                      rowId: "new",
+                                    })
+                                  }
+                                  className={`border-t border-slate-200 ${
+                                    isNewRowActive
+                                      ? "bg-blue-50/70"
+                                      : "bg-slate-50"
+                                  }`}
+                                >
+                                  <td className="px-2 py-2" />
+                                  <td className="px-2 py-2">
+                                    <span className="text-[11px] font-semibold text-blue-700">
+                                      NEW FIELD
+                                    </span>
+                                  </td>
+                                  <td className="px-2 py-2">
+                                    <input
+                                      value={columnDraft.name}
+                                      onChange={(event) =>
+                                        setNewColumnDraft(table.table_id, {
+                                          name: event.target.value,
+                                        })
                                       }
-                                    }}
-                                    placeholder="column_name"
-                                    className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs outline-none focus:border-blue-500"
-                                  />
-                                </td>
-                                <td className="px-2 py-2">
-                                  <select
-                                    value={columnDraft.dataType}
-                                    onChange={(event) =>
-                                      setNewColumnDraft(table.table_id, {
-                                        dataType: event.target.value,
-                                      })
-                                    }
-                                    className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs outline-none focus:border-blue-500"
-                                  >
-                                    {postgresTypeOptions.map((option) => (
-                                      <option key={option} value={option}>
-                                        {option}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </td>
-                                <td className="px-2 py-2">
-                                  <select
-                                    value={
-                                      columnDraft.isNullable
-                                        ? "nullable"
-                                        : "not_null"
-                                    }
-                                    onChange={(event) =>
-                                      setNewColumnDraft(table.table_id, {
-                                        isNullable:
-                                          event.target.value === "nullable",
-                                      })
-                                    }
-                                    className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold outline-none focus:border-blue-500"
-                                  >
-                                    <option value="not_null">NOT NULL</option>
-                                    <option value="nullable">NULLABLE</option>
-                                  </select>
-                                </td>
-                                <td className="px-2 py-2">
-                                  <span className="text-[11px] text-slate-400">
-                                    Set after create
-                                  </span>
-                                </td>
-                                <td className="px-2 py-2">
-                                  <span className="text-[11px] text-slate-400">
-                                    Set after create
-                                  </span>
-                                </td>
-                                <td className="px-2 py-2">
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      void addColumnToTable(table.table_id)
-                                    }
-                                    className="inline-flex items-center gap-1 rounded-md bg-slate-900 px-2 py-1 text-[11px] font-semibold text-white hover:bg-slate-700"
-                                  >
-                                    <Table2 className="h-3.5 w-3.5" />
-                                    Add
-                                  </button>
-                                </td>
-                              </tr>
+                                      onFocus={() =>
+                                        setActiveFieldRow({
+                                          tableId: table.table_id,
+                                          rowId: "new",
+                                        })
+                                      }
+                                      onKeyDown={(event) => {
+                                        if (event.key === "Enter") {
+                                          event.preventDefault();
+                                          void addColumnToTable(table.table_id);
+                                        }
+                                      }}
+                                      className={getDictionaryInputClass(
+                                        isNewRowActive,
+                                      )}
+                                    />
+                                  </td>
+                                  <td className="px-2 py-2">
+                                    <div className="relative">
+                                      <select
+                                        value={columnDraft.dataType}
+                                        onChange={(event) =>
+                                          setNewColumnDraft(table.table_id, {
+                                            dataType: event.target.value,
+                                          })
+                                        }
+                                        onFocus={() =>
+                                          setActiveFieldRow({
+                                            tableId: table.table_id,
+                                            rowId: "new",
+                                          })
+                                        }
+                                        className={`${getDictionaryInputClass(
+                                          isNewRowActive,
+                                        )} appearance-none pr-5 text-[11px]`}
+                                      >
+                                        {postgresTypeOptions.map((option) => (
+                                          <option key={option} value={option}>
+                                            {option}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <ChevronDown className="pointer-events-none absolute top-1.5 right-1 h-3.5 w-3.5 text-slate-500" />
+                                    </div>
+                                  </td>
+                                  <td className="px-2 py-2">
+                                    <div className="relative">
+                                      <select
+                                        value={
+                                          columnDraft.isNullable
+                                            ? "nullable"
+                                            : "not_null"
+                                        }
+                                        onChange={(event) =>
+                                          setNewColumnDraft(table.table_id, {
+                                            isNullable:
+                                              event.target.value === "nullable",
+                                          })
+                                        }
+                                        onFocus={() =>
+                                          setActiveFieldRow({
+                                            tableId: table.table_id,
+                                            rowId: "new",
+                                          })
+                                        }
+                                        className={`${getDictionaryInputClass(
+                                          isNewRowActive,
+                                        )} appearance-none pr-5 text-[11px] font-semibold`}
+                                      >
+                                        <option value="not_null">
+                                          NOT NULL
+                                        </option>
+                                        <option value="nullable">
+                                          NULLABLE
+                                        </option>
+                                      </select>
+                                      <ChevronDown className="pointer-events-none absolute top-1.5 right-1 h-3.5 w-3.5 text-slate-500" />
+                                    </div>
+                                  </td>
+                                  <td className="px-2 py-2" />
+                                  <td className="px-2 py-2" />
+                                  <td className="px-2 py-2" />
+                                  <td className="px-2 py-2">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        void addColumnToTable(table.table_id)
+                                      }
+                                      className="inline-flex items-center gap-1 rounded-md bg-slate-900 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-slate-700"
+                                    >
+                                      <Table2 className="h-3.5 w-3.5" />
+                                      Add New
+                                    </button>
+                                  </td>
+                                </tr>
+                              ) : null}
                             </tbody>
                           </table>
                         </div>
@@ -4169,7 +4562,32 @@ export function Dashboard({
                 <label className="inline-flex items-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm">
                   <input
                     type="checkbox"
+                    checked={fieldAttributesDraft.primaryKey}
+                    onChange={(event) =>
+                      setFieldAttributesDraft((current) =>
+                        current
+                          ? {
+                              ...current,
+                              primaryKey: event.target.checked,
+                              unique: event.target.checked
+                                ? true
+                                : current.unique,
+                              isNullable: event.target.checked
+                                ? false
+                                : current.isNullable,
+                            }
+                          : current,
+                      )
+                    }
+                  />
+                  Primary Key
+                </label>
+
+                <label className="inline-flex items-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm">
+                  <input
+                    type="checkbox"
                     checked={fieldAttributesDraft.unique}
+                    disabled={fieldAttributesDraft.primaryKey}
                     onChange={(event) =>
                       setFieldAttributesDraft((current) =>
                         current
@@ -4203,23 +4621,26 @@ export function Dashboard({
                 </label>
               </div>
 
-              <label className="inline-flex items-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={fieldAttributesDraft.array}
-                  onChange={(event) =>
-                    setFieldAttributesDraft((current) =>
-                      current
-                        ? {
-                            ...current,
-                            array: event.target.checked,
-                          }
-                        : current,
-                    )
-                  }
-                />
-                Array
-              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="inline-flex items-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={fieldAttributesDraft.array}
+                    onChange={(event) =>
+                      setFieldAttributesDraft((current) =>
+                        current
+                          ? {
+                              ...current,
+                              array: event.target.checked,
+                            }
+                          : current,
+                      )
+                    }
+                  />
+                  Array
+                </label>
+                <div />
+              </div>
 
               <div>
                 <p className="mb-1 block text-xs font-semibold text-slate-600">
@@ -4262,7 +4683,6 @@ export function Dashboard({
                         : current,
                     )
                   }
-                  placeholder="No default"
                   className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
                 />
               </div>
@@ -4283,8 +4703,28 @@ export function Dashboard({
                         : current,
                     )
                   }
-                  placeholder="Sample value"
                   className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <p className="mb-1 block text-xs font-semibold text-slate-600">
+                  Comments
+                </p>
+                <textarea
+                  value={fieldAttributesDraft.comments}
+                  onChange={(event) =>
+                    setFieldAttributesDraft((current) =>
+                      current
+                        ? {
+                            ...current,
+                            comments: event.target.value,
+                          }
+                        : current,
+                    )
+                  }
+                  placeholder="Notes or description"
+                  className="h-20 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
                 />
               </div>
             </div>
