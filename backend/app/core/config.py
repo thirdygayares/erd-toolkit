@@ -1,8 +1,14 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+APP_DIR = Path(__file__).resolve().parents[1]
+BACKEND_DIR = APP_DIR.parent
 
 
 class Settings(BaseSettings):
@@ -16,13 +22,39 @@ class Settings(BaseSettings):
     db_password: str = ""
 
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
-    cors_allow_credentials: bool = False
+    cors_allow_credentials: bool = True
+
+    auth_jwt_access_secret: str
+    auth_access_ttl_minutes: int = 15
+    auth_refresh_ttl_days: int = 30
+    auth_oauth_state_ttl_minutes: int = 10
+    auth_frontend_base_url: str = "http://localhost:3000"
+    auth_cookie_domain: str | None = None
+    auth_cookie_secure: bool = False
+    auth_cookie_samesite: str = "lax"
+    auth_email_verification_required: bool = False
+    auth_google_client_id: str = ""
+    auth_google_client_secret: str = ""
+    auth_google_redirect_uri: str | None = None
+    auth_github_client_id: str = ""
+    auth_github_client_secret: str = ""
+    auth_github_redirect_uri: str | None = None
+    auth_lock_after_failed_attempts: int = 5
+    auth_lock_minutes: int = 15
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(BACKEND_DIR / ".env", APP_DIR / ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @field_validator("auth_cookie_domain", mode="before")
+    @classmethod
+    def normalize_cookie_domain(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = str(value).strip()
+        return cleaned or None
 
     @property
     def database_dsn(self) -> str:

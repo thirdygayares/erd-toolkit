@@ -5,12 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
 import { useGetProjectByShareSlugQuery } from "@/hooks/project/useGetProjectByShareSlugQuery";
-
-const sessionStorageKey = {
-  workspaceId: "ERD_WORKSPACE_ID",
-  projectId: "ERD_PROJECT_ID",
-  shareSlug: "ERD_SHARE_SLUG",
-} as const;
+import { setStoredProjectContext } from "@/lib/authStorage";
 
 interface ShareRedirectProps {
   shareSlug: string;
@@ -26,15 +21,11 @@ export function ShareRedirect({ shareSlug }: ShareRedirectProps) {
       return;
     }
 
-    window.localStorage.setItem(sessionStorageKey.shareSlug, shareSlug);
-    window.localStorage.setItem(
-      sessionStorageKey.projectId,
-      project.project_id,
-    );
-    window.localStorage.setItem(
-      sessionStorageKey.workspaceId,
-      project.workspace_id,
-    );
+    setStoredProjectContext({
+      shareSlug,
+      projectId: project.project_id,
+      workspaceId: project.workspace_id,
+    });
 
     router.replace(`/project/${project.project_id}?share=${shareSlug}`);
   }, [projectByShareSlugQuery.data, router, shareSlug]);

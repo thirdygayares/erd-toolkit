@@ -4,18 +4,18 @@ import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
+import {
+  clearStoredProjectContext,
+  setStoredProjectContext,
+} from "@/lib/authStorage";
 import { DiagramService } from "@/services/diagramService";
 import { ProjectService } from "@/services/projectService";
 import { WorkspaceService } from "@/services/workspaceService";
 
-const sessionStorageKey = {
-  workspaceId: "ERD_WORKSPACE_ID",
-  projectId: "ERD_PROJECT_ID",
-  diagramId: "ERD_DIAGRAM_ID",
-  shareSlug: "ERD_SHARE_SLUG",
-} as const;
+type BootstrapWorkspaceMode = "guest" | "personal";
+type BootstrapProjectVisibility = "public" | "private";
 
-function buildGuestName(prefix: string): string {
+function buildProjectName(prefix: string): string {
   const now = new Date();
   return `${prefix} ${now.getHours().toString().padStart(2, "0")}${now
     .getMinutes()
@@ -27,7 +27,15 @@ const workspaceService = new WorkspaceService();
 const projectService = new ProjectService();
 const diagramService = new DiagramService();
 
-export function ProjectBootstrap() {
+interface ProjectBootstrapProps {
+  workspaceMode: BootstrapWorkspaceMode;
+  projectVisibility: BootstrapProjectVisibility;
+}
+
+export function ProjectBootstrap({
+  workspaceMode,
+  projectVisibility,
+}: ProjectBootstrapProps) {
   const router = useRouter();
   const initializedRef = useRef(false);
   const [status, setStatus] = useState("Preparing workspace...");
@@ -41,33 +49,32 @@ export function ProjectBootstrap() {
     initializedRef.current = true;
 
     const bootstrap = async () => {
-      const url = new URL(window.location.href);
-      const shareSlug = url.searchParams.get("share")?.trim();
-
-      if (shareSlug) {
-        router.replace(`/share/${shareSlug}`);
-        return;
-      }
-
-      const existingProjectId =
-        window.localStorage.getItem(sessionStorageKey.projectId) ?? "";
-      if (existingProjectId) {
-        router.replace(`/project/${existingProjectId}`);
-        return;
-      }
-
-      setStatus("Creating guest workspace...");
+      setStatus(
+        workspaceMode === "guest"
+          ? "Creating guest workspace..."
+          : "Creating personal workspace...",
+      );
       const workspace = await workspaceService.createWorkspace({
-        name: buildGuestName("Guest Workspace"),
-        workspace_mode: "guest",
+        name:
+          workspaceMode === "guest"
+            ? buildProjectName("Guest Workspace")
+            : buildProjectName("Personal Workspace"),
+        workspace_mode: workspaceMode,
       });
 
-      setStatus("Creating public project...");
+      setStatus(
+        projectVisibility === "public"
+          ? "Creating public project..."
+          : "Creating private project...",
+      );
       const project = await projectService.createProject({
         workspace_id: workspace.workspace_id,
-        name: buildGuestName("ERD Project"),
-        visibility: "public",
-        allow_anonymous_edit: true,
+        name:
+          workspaceMode === "guest"
+            ? buildProjectName("Guest ERD Project")
+            : buildProjectName("Private ERD Project"),
+        visibility: projectVisibility,
+        allow_anonymous_edit: projectVisibility === "public",
       });
 
       setStatus("Creating main diagram...");
@@ -77,24 +84,12 @@ export function ProjectBootstrap() {
         name: "Main Diagram",
       });
 
-      window.localStorage.setItem(
-        sessionStorageKey.workspaceId,
-        workspace.workspace_id,
-      );
-      window.localStorage.setItem(
-        sessionStorageKey.projectId,
-        project.project_id,
-      );
-      window.localStorage.setItem(
-        sessionStorageKey.diagramId,
-        diagram.diagram_id,
-      );
-      if (project.share_slug) {
-        window.localStorage.setItem(
-          sessionStorageKey.shareSlug,
-          project.share_slug,
-        );
-      }
+      setStoredProjectContext({
+        workspaceId: workspace.workspace_id,
+        projectId: project.project_id,
+        diagramId: diagram.diagram_id,
+        shareSlug: projectVisibility === "public" ? project.share_slug : null,
+      });
 
       router.replace(`/project/${project.project_id}`);
     };
@@ -106,7 +101,7 @@ export function ProjectBootstrap() {
           : "Unable to initialize project.";
       setErrorMessage(message);
     });
-  }, [router]);
+  }, [projectVisibility, router, workspaceMode]);
 
   if (errorMessage) {
     return (
@@ -119,10 +114,7 @@ export function ProjectBootstrap() {
           <button
             type="button"
             onClick={() => {
-              window.localStorage.removeItem(sessionStorageKey.workspaceId);
-              window.localStorage.removeItem(sessionStorageKey.projectId);
-              window.localStorage.removeItem(sessionStorageKey.diagramId);
-              window.localStorage.removeItem(sessionStorageKey.shareSlug);
+              clearStoredProjectContext();
               window.location.reload();
             }}
             className="mt-4 rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"

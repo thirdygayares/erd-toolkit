@@ -4,6 +4,64 @@ export interface WorkspaceCreateRequest {
   workspace_mode: "shared" | "personal" | "guest";
 }
 
+export interface AuthUser {
+  user_id: string;
+  email: string;
+  display_name: string | null;
+  status: string;
+  primary_auth_provider: "email" | "google" | "github";
+  email_verified_at: string | null;
+  last_login_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AuthSessionResponse {
+  user: AuthUser;
+  session_id: string;
+  access_token_expires_at: string;
+  refresh_token_expires_at: string;
+}
+
+export interface AuthStatusResponse {
+  user: AuthUser;
+}
+
+export interface EmailRegisterRequest {
+  email: string;
+  password: string;
+  display_name?: string | null;
+}
+
+export interface EmailLoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface OAuthStartRequest {
+  redirect_path?: string | null;
+  guest_workspace_id?: string | null;
+  guest_project_id?: string | null;
+}
+
+export interface OAuthStartResponse {
+  provider: "google" | "github";
+  authorization_url: string;
+  expires_at: string;
+}
+
+export interface GuestClaimRequest {
+  workspace_id: string;
+}
+
+export interface GuestClaimResponse {
+  workspace_id: string;
+  owner_user_id: string;
+  claim_status: "claimed" | "already-owned";
+  claimed_project_count: number;
+  updated_at: string;
+}
+
 export interface WorkspaceResponse {
   workspace_id: string;
   name: string;
