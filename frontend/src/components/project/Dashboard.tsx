@@ -52,6 +52,10 @@ import { useUpdateColumnMutation } from "@/hooks/schemaEditor/useUpdateColumnMut
 import { useUpdateRelationshipMutation } from "@/hooks/schemaEditor/useUpdateRelationshipMutation";
 import { useUpdateTableMutation } from "@/hooks/schemaEditor/useUpdateTableMutation";
 import { getApiErrorMessage } from "@/lib/apiError";
+import {
+  clearStoredProjectContext,
+  setStoredProjectContext,
+} from "@/lib/authStorage";
 import type {
   ColumnResponse,
   DiagramDetailResponse,
@@ -65,13 +69,6 @@ type SidebarMode = "tables" | "relations" | "customTypes" | "importExport";
 type TableDialogMode = "create" | "edit";
 type RelationshipDialogMode = "create" | "edit";
 type ProjectView = "erd" | "dictionary";
-
-const sessionStorageKey = {
-  workspaceId: "ERD_WORKSPACE_ID",
-  projectId: "ERD_PROJECT_ID",
-  diagramId: "ERD_DIAGRAM_ID",
-  shareSlug: "ERD_SHARE_SLUG",
-} as const;
 
 const tableColors = [
   "#65d5b8",
@@ -554,13 +551,10 @@ export function Dashboard({
       return;
     }
 
-    window.localStorage.setItem(sessionStorageKey.projectId, projectId);
+    setStoredProjectContext({ projectId });
 
     if (initialShareSlug) {
-      window.localStorage.setItem(
-        sessionStorageKey.shareSlug,
-        initialShareSlug,
-      );
+      setStoredProjectContext({ shareSlug: initialShareSlug });
       setShareSlug(initialShareSlug);
     }
 
@@ -577,16 +571,13 @@ export function Dashboard({
     setStatusMessage(`Project loaded: ${project.name}`);
 
     if (typeof window !== "undefined") {
-      window.localStorage.setItem(
-        sessionStorageKey.workspaceId,
-        project.workspace_id,
-      );
+      setStoredProjectContext({ workspaceId: project.workspace_id });
       if (project.share_slug) {
         setShareSlug(project.share_slug);
-        window.localStorage.setItem(
-          sessionStorageKey.shareSlug,
-          project.share_slug,
-        );
+        setStoredProjectContext({ shareSlug: project.share_slug });
+      } else {
+        setShareSlug("");
+        setStoredProjectContext({ shareSlug: null });
       }
     }
   }, [projectQuery.data]);
@@ -605,10 +596,7 @@ export function Dashboard({
     if (projectDiagram) {
       setDiagramId(projectDiagram.diagram_id);
       if (typeof window !== "undefined") {
-        window.localStorage.setItem(
-          sessionStorageKey.diagramId,
-          projectDiagram.diagram_id,
-        );
+        setStoredProjectContext({ diagramId: projectDiagram.diagram_id });
       }
       setStatusMessage(`Diagram loaded: ${projectDiagram.name}`);
       return;
@@ -628,10 +616,7 @@ export function Dashboard({
       .then((diagram) => {
         setDiagramId(diagram.diagram_id);
         if (typeof window !== "undefined") {
-          window.localStorage.setItem(
-            sessionStorageKey.diagramId,
-            diagram.diagram_id,
-          );
+          setStoredProjectContext({ diagramId: diagram.diagram_id });
         }
         setStatusMessage("Main diagram created.");
       })
@@ -1941,10 +1926,7 @@ export function Dashboard({
       return;
     }
 
-    window.localStorage.removeItem(sessionStorageKey.workspaceId);
-    window.localStorage.removeItem(sessionStorageKey.projectId);
-    window.localStorage.removeItem(sessionStorageKey.diagramId);
-    window.localStorage.removeItem(sessionStorageKey.shareSlug);
+    clearStoredProjectContext();
     window.location.href = "/";
   }
 

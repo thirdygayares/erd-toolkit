@@ -18,6 +18,21 @@ class ForbiddenError(AppError):
         super().__init__(message, status_code=403)
 
 
+class UnauthorizedError(AppError):
+    def __init__(self, message: str = "unauthorized") -> None:
+        super().__init__(message, status_code=401)
+
+
+class ConflictError(AppError):
+    def __init__(self, message: str) -> None:
+        super().__init__(message, status_code=409)
+
+
 class ValidationError(AppError):
     def __init__(self, message: str) -> None:
         super().__init__(message, status_code=422)
+
+
+class RateLimitError(AppError):
+    def __init__(self, message: str = "too many requests") -> None:
+        super().__init__(message, status_code=429)
