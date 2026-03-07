@@ -71,6 +71,24 @@ class StubProjectService:
             "updated_at": datetime.now(timezone.utc),
         }
 
+    def list_projects(self, ctx):
+        return [
+            {
+                "project_id": self.project_id,
+                "workspace_id": self.workspace_id,
+                "workspace_name": "Default Workspace",
+                "workspace_mode": "personal",
+                "name": "Project",
+                "description": None,
+                "visibility": "public",
+                "share_slug": "share-abc",
+                "allow_anonymous_edit": True,
+                "is_archived": False,
+                "created_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(timezone.utc),
+            }
+        ]
+
 
 def test_create_project(client, app):
     service = StubProjectService()
@@ -98,3 +116,15 @@ def test_get_project_by_share_slug(client, app):
 
     assert response.status_code == 200
     assert response.json()["share_slug"] == "share-abc"
+
+
+def test_list_projects(client, app):
+    service = StubProjectService()
+    app.dependency_overrides[get_project_service] = lambda: service
+
+    response = client.get("/api/v1/projects")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["workspace_name"] == "Default Workspace"

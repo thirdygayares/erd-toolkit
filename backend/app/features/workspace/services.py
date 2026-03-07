@@ -36,6 +36,20 @@ class WorkspaceService:
                 )
                 return cur.fetchone()
 
+    def list_workspaces(self, ctx: RequestContext) -> list[dict]:
+        with self.db.connection() as conn:
+            self.db.apply_request_context(conn, ctx)
+            with conn.cursor() as cur:
+                cur.execute(sql.LIST_WORKSPACES)
+                return cur.fetchall()
+
+    def ensure_default_workspace(self, ctx: RequestContext) -> dict:
+        with self.db.connection() as conn:
+            self.db.apply_request_context(conn, ctx)
+            with conn.cursor() as cur:
+                cur.execute(sql.ENSURE_DEFAULT_WORKSPACE)
+                return cur.fetchone()
+
     @staticmethod
     def _build_slug(name: str) -> str:
         cleaned = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")

@@ -1,6 +1,7 @@
 import { axiosInstance } from "@/lib/axiosInstance";
 import type {
   ProjectCreateRequest,
+  ProjectListResponse,
   ProjectResponse,
   ProjectVisibilityUpdateRequest,
 } from "@/lib/types";
@@ -11,6 +12,12 @@ export class ProjectService {
       "/projects",
       payload,
     );
+    return data;
+  }
+
+  async listProjects(): Promise<ProjectListResponse[]> {
+    const { data } =
+      await axiosInstance.get<ProjectListResponse[]>("/projects");
     return data;
   }
 

@@ -54,12 +54,20 @@ export function Header({
         </nav>
 
         <div className="hidden items-center gap-3 md:flex">
-          <Button onClick={onGuestClick} size="sm" variant="ghost">
-            {isAuthenticated ? "Guest Workspace" : "Continue as Guest"}
-          </Button>
-          <Button onClick={onWorkspaceClick} size="sm">
-            {isAuthenticated ? "Private Workspace" : "Create Workspace"}
-          </Button>
+          {isAuthenticated ? (
+            <Button onClick={onWorkspaceClick} size="sm">
+              Workspace
+            </Button>
+          ) : (
+            <>
+              <Button onClick={onGuestClick} size="sm" variant="ghost">
+                Continue as Guest
+              </Button>
+              <Button onClick={onWorkspaceClick} size="sm">
+                Create Workspace
+              </Button>
+            </>
+          )}
         </div>
 
         <button
@@ -93,25 +101,39 @@ export function Header({
             </a>
           ))}
           <div className="space-y-2 pt-3">
-            <Button
-              className="w-full"
-              onClick={() => {
-                setMobileOpen(false);
-                onGuestClick();
-              }}
-              variant="outline"
-            >
-              {isAuthenticated ? "Guest Workspace" : "Continue as Guest"}
-            </Button>
-            <Button
-              className="w-full"
-              onClick={() => {
-                setMobileOpen(false);
-                onWorkspaceClick();
-              }}
-            >
-              {isAuthenticated ? "Private Workspace" : "Create Workspace"}
-            </Button>
+            {isAuthenticated ? (
+              <Button
+                className="w-full"
+                onClick={() => {
+                  setMobileOpen(false);
+                  onWorkspaceClick();
+                }}
+              >
+                Workspace
+              </Button>
+            ) : (
+              <>
+                <Button
+                  className="w-full"
+                  onClick={() => {
+                    setMobileOpen(false);
+                    onGuestClick();
+                  }}
+                  variant="outline"
+                >
+                  Continue as Guest
+                </Button>
+                <Button
+                  className="w-full"
+                  onClick={() => {
+                    setMobileOpen(false);
+                    onWorkspaceClick();
+                  }}
+                >
+                  Create Workspace
+                </Button>
+              </>
+            )}
           </div>
         </div>
       </div>

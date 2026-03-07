@@ -19,6 +19,31 @@ class StubWorkspaceService:
             "updated_at": datetime.now(timezone.utc),
         }
 
+    def list_workspaces(self, ctx):
+        return [
+            {
+                "workspace_id": uuid4(),
+                "name": "Default Workspace",
+                "slug": "default-workspace",
+                "owner_user_id": uuid4(),
+                "workspace_mode": "personal",
+                "created_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(timezone.utc),
+            }
+        ]
+
+    def ensure_default_workspace(self, ctx):
+        return {
+            "workspace_id": uuid4(),
+            "name": "Default Workspace",
+            "slug": "default-workspace",
+            "owner_user_id": uuid4(),
+            "workspace_mode": "personal",
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
+            "was_created": False,
+        }
+
 
 def test_create_workspace(client, app):
     app.dependency_overrides[get_workspace_service] = lambda: StubWorkspaceService()
@@ -32,3 +57,25 @@ def test_create_workspace(client, app):
     body = response.json()
     assert body["name"] == "Demo Workspace"
     assert body["workspace_mode"] == "guest"
+
+
+def test_list_workspaces(client, app):
+    app.dependency_overrides[get_workspace_service] = lambda: StubWorkspaceService()
+
+    response = client.get("/api/v1/workspaces")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["name"] == "Default Workspace"
+
+
+def test_ensure_default_workspace(client, app):
+    app.dependency_overrides[get_workspace_service] = lambda: StubWorkspaceService()
+
+    response = client.post("/api/v1/workspaces/ensure-default")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["name"] == "Default Workspace"
+    assert body["was_created"] is False

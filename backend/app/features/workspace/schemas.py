@@ -21,3 +21,24 @@ class WorkspaceResponse(BaseModel):
     is_active: bool
     created_at: datetime
     updated_at: datetime
+
+
+class WorkspaceListResponse(BaseModel):
+    workspace_id: UUID
+    name: str
+    slug: str
+    workspace_mode: str
+    owner_user_id: UUID | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class WorkspaceEnsureDefaultResponse(BaseModel):
+    workspace_id: UUID
+    name: str
+    slug: str
+    workspace_mode: str
+    owner_user_id: UUID | None
+    created_at: datetime
+    updated_at: datetime
+    was_created: bool

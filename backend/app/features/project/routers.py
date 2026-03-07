@@ -6,6 +6,7 @@ from app.core.context import RequestContext, get_request_context
 from app.core.db import get_db
 from app.features.project.schemas import (
     ProjectCreateRequest,
+    ProjectListResponse,
     ProjectResponse,
     ProjectVisibilityUpdateRequest,
 )
@@ -25,6 +26,15 @@ def create_project(
     service: ProjectService = Depends(get_project_service),
 ) -> ProjectResponse:
     return ProjectResponse(**service.create_project(payload, ctx))
+
+
+@router.get("/projects", response_model=list[ProjectListResponse])
+def list_projects(
+    ctx: RequestContext = Depends(get_request_context),
+    service: ProjectService = Depends(get_project_service),
+) -> list[ProjectListResponse]:
+    projects = service.list_projects(ctx)
+    return [ProjectListResponse(**p) for p in projects]
 
 
 @router.get("/projects/{project_id}", response_model=ProjectResponse)
