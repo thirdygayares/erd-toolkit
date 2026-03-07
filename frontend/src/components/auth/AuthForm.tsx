@@ -77,27 +77,28 @@ export function AuthForm({ mode }: AuthFormProps) {
                 ERD Toolkit
               </p>
               <h1 className="max-w-md text-4xl font-semibold leading-tight">
-                Secure your projects without losing the guest flow.
+                Design your database before code gets complicated.
               </h1>
               <p className="max-w-md text-sm leading-7 text-slate-300">
-                Sign in with email, Google, or GitHub, then claim your current
-                guest workspace when you are ready to keep it.
+                ERD Toolkit gives you visual schema planning, field-level detail,
+                relationship mapping, and SQL export—everything to architect data
+                clearly.
               </p>
             </div>
 
             <div className="grid gap-4 rounded-[2rem] border border-white/10 bg-white/5 p-6 text-sm text-slate-200">
               <div>
-                <p className="font-semibold text-white">Database-first auth</p>
+                <p className="font-semibold text-white">Two powerful views</p>
                 <p className="mt-1 text-slate-300">
-                  User registration, sessions, and guest claiming are backed by
-                  PostgreSQL functions and Flyway migrations.
+                  ERD view for architecture. Data Dictionary view for field-level
+                  clarity. Switch between them as your planning deepens.
                 </p>
               </div>
               <div>
-                <p className="font-semibold text-white">OAuth-ready</p>
+                <p className="font-semibold text-white">From design to code</p>
                 <p className="mt-1 text-slate-300">
-                  Google and GitHub flows are already wired for the backend
-                  callback and session cookies.
+                  Export to SQL, document relationships, organize fields. Move
+                  schema thinking directly into development.
                 </p>
               </div>
             </div>
@@ -110,8 +111,8 @@ export function AuthForm({ mode }: AuthFormProps) {
               </CardTitle>
               <CardDescription>
                 {mode === "login"
-                  ? "Sign in with the email and password tied to your ERD Toolkit account."
-                  : "Register with email first, then link Google or GitHub later if you want."}
+                  ? "Access your saved ERD projects and continue planning where you left off."
+                  : "Create an account to save, organize, and share your database designs."}
               </CardDescription>
             </CardHeader>
 
@@ -138,7 +139,7 @@ export function AuthForm({ mode }: AuthFormProps) {
                     <Input
                       id="displayName"
                       onChange={(event) => setDisplayName(event.target.value)}
-                      placeholder="Schema Architect"
+                      placeholder="Your name (optional)"
                       value={displayName}
                     />
                   </div>
