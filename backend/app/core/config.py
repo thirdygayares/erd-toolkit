@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
     cors_allow_credentials: bool = True
 
-    auth_jwt_access_secret: str = "dev-access-secret-change-me-please-123456789"
+    auth_jwt_access_secret: str
     auth_access_ttl_minutes: int = 15
     auth_refresh_ttl_days: int = 30
     auth_oauth_state_ttl_minutes: int = 10
