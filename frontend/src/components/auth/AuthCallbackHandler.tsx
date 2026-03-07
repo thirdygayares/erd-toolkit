@@ -70,7 +70,7 @@ export function AuthCallbackHandler() {
       return;
     }
 
-    router.replace("/");
+    router.replace("/projects");
   }, [
     claimGuestMutation.isSuccess,
     router,
@@ -81,7 +81,7 @@ export function AuthCallbackHandler() {
 
   async function handleClaimWorkspace() {
     if (!storedContext.workspaceId) {
-      router.replace("/");
+      router.replace("/projects");
       return;
     }
 
@@ -94,7 +94,7 @@ export function AuthCallbackHandler() {
         router.replace(`/project/${storedContext.projectId}`);
         return;
       }
-      router.replace("/");
+      router.replace("/projects");
     } catch (error) {
       setClaimError(
         getApiErrorMessage(error, "Unable to claim guest workspace."),
@@ -107,12 +107,12 @@ export function AuthCallbackHandler() {
       router.replace(`/project/${storedContext.projectId}`);
       return;
     }
-    router.replace("/");
+    router.replace("/projects");
   }
 
   function handleReset() {
     clearStoredProjectContext();
-    router.replace("/");
+    router.replace("/projects");
   }
 
   if (loginError) {

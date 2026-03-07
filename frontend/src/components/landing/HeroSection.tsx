@@ -8,11 +8,13 @@ import { Button } from "@/components/ui/button";
 interface HeroSectionProps {
   onGuestClick: () => void;
   onWorkspaceClick: () => void;
+  isAuthenticated: boolean;
 }
 
 export function HeroSection({
   onGuestClick,
   onWorkspaceClick,
+  isAuthenticated,
 }: HeroSectionProps) {
   return (
     <section className="relative overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(251,191,36,0.18),_transparent_40%),radial-gradient(circle_at_bottom_right,_rgba(14,165,233,0.12),_transparent_35%)] px-4 py-20 sm:px-6 sm:py-28 lg:py-32">
@@ -33,13 +35,22 @@ export function HeroSection({
             </p>
 
             <div className="mt-8 flex flex-wrap gap-3">
-              <Button onClick={onGuestClick} size="lg">
-                Start Free as Guest
-                <ArrowRight className="h-4 w-4" />
-              </Button>
-              <Button onClick={onWorkspaceClick} size="lg" variant="outline">
-                Create Private Workspace
-              </Button>
+              {isAuthenticated ? (
+                <Button onClick={onWorkspaceClick} size="lg">
+                  Workspace
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+              ) : (
+                <>
+                  <Button onClick={onGuestClick} size="lg">
+                    Start Free as Guest
+                    <ArrowRight className="h-4 w-4" />
+                  </Button>
+                  <Button onClick={onWorkspaceClick} size="lg" variant="outline">
+                    Create Private Workspace
+                  </Button>
+                </>
+              )}
             </div>
 
             <div className="mt-8 flex flex-wrap gap-2">

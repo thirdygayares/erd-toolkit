@@ -6,11 +6,13 @@ import { Button } from "@/components/ui/button";
 interface CtaSectionProps {
   onGuestClick: () => void;
   onWorkspaceClick: () => void;
+  isAuthenticated: boolean;
 }
 
 export function CtaSection({
   onGuestClick,
   onWorkspaceClick,
+  isAuthenticated,
 }: CtaSectionProps) {
   return (
     <section className="bg-gradient-to-b from-white to-slate-50 px-4 py-20 sm:px-6 sm:py-28">
@@ -26,13 +28,22 @@ export function CtaSection({
         </p>
 
         <div className="mt-10 flex flex-wrap justify-center gap-4">
-          <Button onClick={onGuestClick} size="lg">
-            Start as Guest
-            <ArrowRight className="h-4 w-4" />
-          </Button>
-          <Button onClick={onWorkspaceClick} size="lg" variant="outline">
-            Create Private Workspace
-          </Button>
+          {isAuthenticated ? (
+            <Button onClick={onWorkspaceClick} size="lg">
+              Workspace
+              <ArrowRight className="h-4 w-4" />
+            </Button>
+          ) : (
+            <>
+              <Button onClick={onGuestClick} size="lg">
+                Start as Guest
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+              <Button onClick={onWorkspaceClick} size="lg" variant="outline">
+                Create Private Workspace
+              </Button>
+            </>
+          )}
         </div>
 
         <p className="mt-8 text-sm text-muted-foreground/70">

@@ -79,3 +79,10 @@ class ProjectService:
                 if not row:
                     raise NotFoundError("project not found")
                 return row
+
+    def list_projects(self, ctx: RequestContext) -> list[dict]:
+        with self.db.connection() as conn:
+            self.db.apply_request_context(conn, ctx)
+            with conn.cursor() as cur:
+                cur.execute(sql.LIST_PROJECTS)
+                return cur.fetchall()

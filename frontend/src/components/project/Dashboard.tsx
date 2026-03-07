@@ -2156,28 +2156,16 @@ export function Dashboard({
     }
   }
 
-  if (projectQuery.isLoading || !workspaceId) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-100">
-        <div className="rounded-xl border border-slate-200 bg-white px-6 py-5 shadow-sm">
-          <div className="flex items-center gap-3 text-slate-700">
-            <RefreshCw className="h-5 w-5 animate-spin" />
-            <span className="font-medium">Loading project workspace...</span>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   if (projectQuery.isError || !projectQuery.data) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4">
         <div className="w-full max-w-xl rounded-xl border border-rose-200 bg-white p-6 shadow-sm">
           <h2 className="text-lg font-semibold text-rose-700">
-            Project access failed
+            Project not found or private
           </h2>
           <p className="mt-2 text-sm text-slate-600">
-            This project could not be loaded. Check the shared link or access.
+            This project could not be loaded. If this is a public project, open
+            it using the share link.
           </p>
           <button
             type="button"
@@ -2186,6 +2174,19 @@ export function Dashboard({
           >
             Back To Home
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (projectQuery.isLoading || (projectQuery.data && !workspaceId)) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-100">
+        <div className="rounded-xl border border-slate-200 bg-white px-6 py-5 shadow-sm">
+          <div className="flex items-center gap-3 text-slate-700">
+            <RefreshCw className="h-5 w-5 animate-spin" />
+            <span className="font-medium">Loading project workspace...</span>
+          </div>
         </div>
       </div>
     );

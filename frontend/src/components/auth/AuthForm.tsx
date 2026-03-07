@@ -80,9 +80,9 @@ export function AuthForm({ mode }: AuthFormProps) {
                 Design your database before code gets complicated.
               </h1>
               <p className="max-w-md text-sm leading-7 text-slate-300">
-                ERD Toolkit gives you visual schema planning, field-level detail,
-                relationship mapping, and SQL export—everything to architect data
-                clearly.
+                ERD Toolkit gives you visual schema planning, field-level
+                detail, relationship mapping, and SQL export—everything to
+                architect data clearly.
               </p>
             </div>
 
@@ -90,8 +90,9 @@ export function AuthForm({ mode }: AuthFormProps) {
               <div>
                 <p className="font-semibold text-white">Two powerful views</p>
                 <p className="mt-1 text-slate-300">
-                  ERD view for architecture. Data Dictionary view for field-level
-                  clarity. Switch between them as your planning deepens.
+                  ERD view for architecture. Data Dictionary view for
+                  field-level clarity. Switch between them as your planning
+                  deepens.
                 </p>
               </div>
               <div>

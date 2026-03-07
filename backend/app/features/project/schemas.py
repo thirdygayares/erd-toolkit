@@ -32,3 +32,18 @@ class ProjectResponse(BaseModel):
     is_archived: bool
     created_at: datetime
     updated_at: datetime
+
+
+class ProjectListResponse(BaseModel):
+    project_id: UUID
+    workspace_id: UUID
+    workspace_name: str
+    workspace_mode: str
+    name: str
+    description: str | None
+    visibility: str
+    share_slug: str | None
+    allow_anonymous_edit: bool
+    is_archived: bool
+    created_at: datetime
+    updated_at: datetime

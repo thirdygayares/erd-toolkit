@@ -34,3 +34,8 @@ FROM api.fn_project_get(
 )
 LIMIT 1;
 """
+
+LIST_PROJECTS = """
+SELECT *
+FROM api.fn_project_list_for_current_user();
+"""

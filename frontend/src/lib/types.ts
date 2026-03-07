@@ -73,6 +73,20 @@ export interface WorkspaceResponse {
   updated_at: string;
 }
 
+export interface WorkspaceListResponse {
+  workspace_id: string;
+  name: string;
+  slug: string;
+  workspace_mode: "shared" | "personal" | "guest";
+  owner_user_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkspaceEnsureDefaultResponse extends WorkspaceListResponse {
+  was_created: boolean;
+}
+
 export interface ProjectCreateRequest {
   workspace_id: string;
   name: string;
@@ -91,6 +105,21 @@ export interface ProjectResponse {
   project_id: string;
   workspace_id: string;
   owner_user_id: string | null;
+  name: string;
+  description: string | null;
+  visibility: "public" | "private";
+  share_slug: string | null;
+  allow_anonymous_edit: boolean;
+  is_archived: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectListResponse {
+  project_id: string;
+  workspace_id: string;
+  workspace_name: string;
+  workspace_mode: "shared" | "personal" | "guest";
   name: string;
   description: string | null;
   visibility: "public" | "private";

@@ -92,7 +92,7 @@ export function LandingPage() {
 
   const handleWorkspaceClick = () => {
     if (isAuthenticated) {
-      setBootstrapChoice("personal");
+      router.push("/projects");
     } else {
       setShowAuthCard(true);
       setTimeout(() => {
@@ -112,6 +112,7 @@ export function LandingPage() {
       />
 
       <HeroSection
+        isAuthenticated={isAuthenticated}
         onGuestClick={handleGuestClick}
         onWorkspaceClick={handleWorkspaceClick}
       />
@@ -121,6 +122,7 @@ export function LandingPage() {
       <WorkflowSection />
       <UseCasesSection />
       <CtaSection
+        isAuthenticated={isAuthenticated}
         onGuestClick={handleGuestClick}
         onWorkspaceClick={handleWorkspaceClick}
       />
@@ -170,9 +172,9 @@ export function LandingPage() {
                   <div className="space-y-3">
                     <Button
                       className="w-full"
-                      onClick={() => setBootstrapChoice("personal")}
+                      onClick={() => router.push("/projects")}
                     >
-                      Create Private Workspace
+                      Go to My Projects
                     </Button>
                     <Button
                       className="w-full"
