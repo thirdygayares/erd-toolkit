@@ -32,7 +32,8 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-
+import { createPortal } from "react-dom";
+import { useAuthSessionQuery } from "@/hooks/auth/useAuthSessionQuery";
 import { useCreateDiagramMutation } from "@/hooks/diagram/useCreateDiagramMutation";
 import { useCreateSnapshotMutation } from "@/hooks/diagram/useCreateSnapshotMutation";
 import { useGetDiagramQuery } from "@/hooks/diagram/useGetDiagramQuery";
@@ -41,6 +42,7 @@ import { useExportSqlMutation } from "@/hooks/export/useExportSqlMutation";
 import { useImportPostgresMutation } from "@/hooks/import/useImportPostgresMutation";
 import { useListPostgresSchemasMutation } from "@/hooks/import/useListPostgresSchemasMutation";
 import { useTestPostgresConnectionMutation } from "@/hooks/import/useTestPostgresConnectionMutation";
+import { useDuplicateProjectMutation } from "@/hooks/project/useDuplicateProjectMutation";
 import { useGetProjectQuery } from "@/hooks/project/useGetProjectQuery";
 import { useUpdateProjectVisibilityMutation } from "@/hooks/project/useUpdateProjectVisibilityMutation";
 import { useCreateColumnMutation } from "@/hooks/schemaEditor/useCreateColumnMutation";
@@ -51,6 +53,7 @@ import { useDeleteRelationshipMutation } from "@/hooks/schemaEditor/useDeleteRel
 import { useUpdateColumnMutation } from "@/hooks/schemaEditor/useUpdateColumnMutation";
 import { useUpdateRelationshipMutation } from "@/hooks/schemaEditor/useUpdateRelationshipMutation";
 import { useUpdateTableMutation } from "@/hooks/schemaEditor/useUpdateTableMutation";
+import { useListWorkspacesQuery } from "@/hooks/workspace/useListWorkspacesQuery";
 import { getApiErrorMessage } from "@/lib/apiError";
 import {
   clearStoredProjectContext,
@@ -63,6 +66,7 @@ import type {
   TableResponse,
 } from "@/lib/types";
 
+import { CreateProjectDialog } from "../projects/CreateProjectDialog";
 import { DiagramCanvas } from "./diagramCanvas/DiagramCanvas";
 
 type SidebarMode = "tables" | "relations" | "customTypes" | "importExport";
@@ -262,6 +266,12 @@ export function Dashboard({
   const [diagramId, setDiagramId] = useState("");
   const [shareSlug, setShareSlug] = useState(initialShareSlug ?? "");
 
+  const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
+  const [isDuplicateProjectOpen, setIsDuplicateProjectOpen] = useState(false);
+  const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false);
+  const [duplicateProjectName, setDuplicateProjectName] = useState("");
+  const [isMounted, setIsMounted] = useState(false);
+
   const [statusMessage, setStatusMessage] = useState("Loading project...");
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>("tables");
   const [isSidebarVisible, setIsSidebarVisible] = useState(true);
@@ -387,6 +397,11 @@ export function Dashboard({
   const [exportSqlOutput, setExportSqlOutput] = useState("");
 
   const attemptedDiagramCreateKeyRef = useRef<string | null>(null);
+
+  const sessionQuery = useAuthSessionQuery();
+  const isAuthenticated = Boolean(sessionQuery.data?.user);
+  const { data: workspaces = [] } = useListWorkspacesQuery(isAuthenticated);
+  const duplicateProjectMutation = useDuplicateProjectMutation();
 
   const projectQuery = useGetProjectQuery(activeProjectId);
   const createDiagramMutation = useCreateDiagramMutation();
@@ -522,6 +537,10 @@ export function Dashboard({
   }, []);
 
   useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  useEffect(() => {
     if (!editingSidebarTableId) {
       return;
     }
@@ -585,7 +604,12 @@ export function Dashboard({
   const createDiagram = createDiagramMutation.mutateAsync;
 
   useEffect(() => {
-    if (!workspaceId || !listDiagramsQuery.data || diagramId) {
+    if (
+      !workspaceId ||
+      !listDiagramsQuery.data ||
+      diagramId ||
+      listDiagramsQuery.isFetching
+    ) {
       return;
     }
 
@@ -630,6 +654,7 @@ export function Dashboard({
     projectId,
     diagramId,
     listDiagramsQuery.data,
+    listDiagramsQuery.isFetching,
     createDiagram,
   ]);
 
@@ -2156,6 +2181,40 @@ export function Dashboard({
     }
   }
 
+  async function handleDuplicateProject(e: React.FormEvent) {
+    e.preventDefault();
+    if (!duplicateProjectName.trim() || !projectId) {
+      return;
+    }
+
+    try {
+      const newProject = await duplicateProjectMutation.mutateAsync({
+        projectId: projectId,
+        payload: { name: duplicateProjectName.trim() },
+      });
+      setIsDuplicateProjectOpen(false);
+      setDuplicateProjectName("");
+      setStatusMessage("Project duplicated successfully.");
+      router.push(`/project/${newProject.project_id}`);
+    } catch (error) {
+      const message = getApiErrorMessage(error, "Unable to duplicate project.");
+      setStatusMessage(message);
+    }
+  }
+
+  function handleOpenDuplicate() {
+    setIsActionsMenuOpen(false);
+    if (projectQuery.data) {
+      setDuplicateProjectName(`Copy of ${projectQuery.data.name}`);
+      setIsDuplicateProjectOpen(true);
+    }
+  }
+
+  function handleOpenNewProject() {
+    setIsActionsMenuOpen(false);
+    setIsCreateProjectOpen(true);
+  }
+
   if (projectQuery.isError || !projectQuery.data) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4">
@@ -2207,7 +2266,7 @@ export function Dashboard({
 
   return (
     <div className="h-screen overflow-hidden bg-[#f8fafc] text-slate-900">
-      <header className="border-b border-slate-200 bg-white">
+      <header className="relative z-40 border-b border-slate-200 bg-white">
         <div className="flex h-10 items-center justify-between px-2 lg:px-3">
           <div className="flex min-w-0 items-center gap-2 text-base font-semibold">
             <button
@@ -2237,12 +2296,41 @@ export function Dashboard({
               {projectQuery.data.name}
             </span>
             <div className="ml-1 hidden items-center gap-1 text-xs font-medium text-slate-600 lg:flex">
-              <button
-                type="button"
-                className="rounded px-2 py-1 hover:bg-slate-100"
-              >
-                Actions
-              </button>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setIsActionsMenuOpen(!isActionsMenuOpen)}
+                  onBlur={() =>
+                    setTimeout(() => setIsActionsMenuOpen(false), 200)
+                  }
+                  className="flex items-center gap-0.5 rounded px-2 py-1 hover:bg-slate-100"
+                >
+                  Actions
+                  <ChevronDown
+                    className={`h-3 w-3 transition-transform ${isActionsMenuOpen ? "rotate-180" : ""}`}
+                  />
+                </button>
+                {isActionsMenuOpen && (
+                  <div className="absolute left-0 top-full z-50 mt-1 w-36 overflow-hidden rounded-md border border-slate-200 bg-white py-1 shadow-lg">
+                    <button
+                      type="button"
+                      onClick={handleOpenNewProject}
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      New Project
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleOpenDuplicate}
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                      Make a copy
+                    </button>
+                  </div>
+                )}
+              </div>
               <button
                 type="button"
                 className="rounded px-2 py-1 hover:bg-slate-100"
@@ -3797,6 +3885,81 @@ export function Dashboard({
           </div>
         </section>
       </main>
+
+      {/* Dialogs */}
+      <CreateProjectDialog
+        key={workspaceId ?? "dashboard-create"}
+        open={isCreateProjectOpen}
+        onOpenChange={setIsCreateProjectOpen}
+        workspaceId={workspaceId || null}
+        workspaces={workspaces}
+      />
+
+      {isMounted &&
+        isDuplicateProjectOpen &&
+        createPortal(
+          <div
+            aria-modal="true"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"
+            role="dialog"
+          >
+            <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white shadow-lg">
+              <div className="p-6">
+                <h2 className="text-lg font-semibold text-slate-900">
+                  Make a copy
+                </h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Duplicate this project, including its schema, into a new
+                  project.
+                </p>
+                <form onSubmit={handleDuplicateProject} className="mt-4">
+                  <div className="space-y-4">
+                    <div>
+                      <label
+                        htmlFor="duplicateName"
+                        className="mb-1.5 block text-sm font-medium text-slate-700"
+                      >
+                        New Project Name
+                      </label>
+                      <input
+                        id="duplicateName"
+                        value={duplicateProjectName}
+                        onChange={(e) =>
+                          setDuplicateProjectName(e.target.value)
+                        }
+                        className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-6 flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsDuplicateProjectOpen(false)}
+                      className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                      disabled={duplicateProjectMutation.isPending}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={
+                        !duplicateProjectName.trim() ||
+                        duplicateProjectMutation.isPending
+                      }
+                      className="inline-flex items-center gap-2 rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+                    >
+                      {duplicateProjectMutation.isPending && (
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                      )}
+                      Copy Project
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
 
       {tableDialog.open ? (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/30 p-4">

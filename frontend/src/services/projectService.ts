@@ -45,4 +45,15 @@ export class ProjectService {
     );
     return data;
   }
+
+  async duplicateProject(
+    projectId: string,
+    payload: { name: string },
+  ): Promise<ProjectResponse> {
+    const { data } = await axiosInstance.post<ProjectResponse>(
+      `/projects/${projectId}/duplicate`,
+      payload,
+    );
+    return data;
+  }
 }

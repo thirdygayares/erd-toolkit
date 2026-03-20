@@ -15,6 +15,10 @@ class ProjectCreateRequest(BaseModel):
     share_slug: str | None = None
 
 
+class ProjectDuplicateRequest(BaseModel):
+    name: str = Field(min_length=2, max_length=140)
+
+
 class ProjectVisibilityUpdateRequest(BaseModel):
     visibility: str = Field(pattern="^(public|private)$")
     allow_anonymous_edit: bool = False

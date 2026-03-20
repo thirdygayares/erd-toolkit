@@ -2,7 +2,8 @@
 
 import { AlertCircle, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,10 +32,19 @@ export function CreateProjectDialog({
     workspaceId || "",
   );
   const [visibility, setVisibility] = useState<"public" | "private">("public");
+  const [mounted, setMounted] = useState(false);
 
   const createProjectMutation = useCreateProjectMutation();
 
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   if (!open) {
+    return null;
+  }
+
+  if (!mounted) {
     return null;
   }
 
@@ -65,7 +75,7 @@ export function CreateProjectDialog({
     );
   };
 
-  return (
+  return createPortal(
     <div
       aria-modal="true"
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"
@@ -175,6 +185,7 @@ export function CreateProjectDialog({
           </form>
         </CardContent>
       </Card>
-    </div>
+    </div>,
+    document.body,
   );
 }

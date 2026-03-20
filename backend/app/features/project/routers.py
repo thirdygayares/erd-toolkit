@@ -6,6 +6,7 @@ from app.core.context import RequestContext, get_request_context
 from app.core.db import get_db
 from app.features.project.schemas import (
     ProjectCreateRequest,
+    ProjectDuplicateRequest,
     ProjectListResponse,
     ProjectResponse,
     ProjectVisibilityUpdateRequest,
@@ -63,3 +64,14 @@ def get_project_by_share_slug(
     service: ProjectService = Depends(get_project_service),
 ) -> ProjectResponse:
     return ProjectResponse(**service.get_project_by_share_slug(share_slug, ctx))
+
+
+@router.post("/projects/{project_id}/duplicate", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
+def duplicate_project(
+    project_id: str,
+    payload: ProjectDuplicateRequest,
+    ctx: RequestContext = Depends(get_request_context),
+    service: ProjectService = Depends(get_project_service),
+) -> ProjectResponse:
+    return ProjectResponse(**service.duplicate_project(project_id, payload.name, ctx))
+
