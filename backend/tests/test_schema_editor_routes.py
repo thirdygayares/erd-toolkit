@@ -10,6 +10,7 @@ class StubSchemaEditorService:
     def __init__(self):
         self.table_id = uuid4()
         self.column_id = uuid4()
+        self.custom_type_id = uuid4()
 
     def create_table(self, diagram_id, payload, ctx):
         return {
@@ -88,6 +89,42 @@ class StubSchemaEditorService:
             "is_primary_key": False,
             "is_unique": False,
             "example_value": None,
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
+        }
+
+    def create_custom_type(self, diagram_id, payload, ctx):
+        return {
+            "custom_type_id": self.custom_type_id,
+            "diagram_id": diagram_id,
+            "schema_name": payload.schema_name,
+            "type_name": payload.type_name,
+            "kind": "enum",
+            "enum_values": payload.enum_values,
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
+        }
+
+    def update_custom_type(self, diagram_id, custom_type_id, payload, ctx):
+        return {
+            "custom_type_id": custom_type_id,
+            "diagram_id": diagram_id,
+            "schema_name": payload.schema_name or "public",
+            "type_name": payload.type_name or "order_status",
+            "kind": "enum",
+            "enum_values": payload.enum_values or ["draft", "paid"],
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
+        }
+
+    def delete_custom_type(self, diagram_id, custom_type_id, ctx):
+        return {
+            "custom_type_id": custom_type_id,
+            "diagram_id": diagram_id,
+            "schema_name": "public",
+            "type_name": "order_status",
+            "kind": "enum",
+            "enum_values": ["draft", "paid"],
             "created_at": datetime.now(timezone.utc),
             "updated_at": datetime.now(timezone.utc),
         }
@@ -190,6 +227,52 @@ def test_delete_column(client, app):
 
     assert response.status_code == 200
     assert response.json()["column_name"] == "legacy_column"
+
+
+def test_create_custom_type(client, app):
+    app.dependency_overrides[get_schema_editor_service] = lambda: StubSchemaEditorService()
+
+    response = client.post(
+        f"/api/v1/diagrams/{uuid4()}/custom-types",
+        json={
+            "schema_name": "public",
+            "type_name": "order_status",
+            "enum_values": ["draft", "paid", "shipped"],
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["type_name"] == "order_status"
+    assert response.json()["enum_values"] == ["draft", "paid", "shipped"]
+
+
+def test_update_custom_type(client, app):
+    app.dependency_overrides[get_schema_editor_service] = lambda: StubSchemaEditorService()
+    diagram_id = uuid4()
+    custom_type_id = uuid4()
+
+    response = client.patch(
+        f"/api/v1/diagrams/{diagram_id}/custom-types/{custom_type_id}",
+        json={
+            "type_name": "payment_status",
+            "enum_values": ["pending", "paid"],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["type_name"] == "payment_status"
+    assert response.json()["enum_values"] == ["pending", "paid"]
+
+
+def test_delete_custom_type(client, app):
+    app.dependency_overrides[get_schema_editor_service] = lambda: StubSchemaEditorService()
+
+    response = client.delete(
+        f"/api/v1/diagrams/{uuid4()}/custom-types/{uuid4()}",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["type_name"] == "order_status"
 
 
 def test_delete_relationship(client, app):

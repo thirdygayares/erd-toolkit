@@ -236,6 +236,29 @@ export interface ColumnMutationResponse {
   updated_at: string;
 }
 
+export interface CustomTypeCreateRequest {
+  schema_name: string;
+  type_name: string;
+  enum_values: string[];
+}
+
+export interface CustomTypeUpdateRequest {
+  schema_name?: string | null;
+  type_name?: string | null;
+  enum_values?: string[] | null;
+}
+
+export interface CustomTypeResponse {
+  custom_type_id: string;
+  diagram_id: string;
+  schema_name: string;
+  type_name: string;
+  kind: string;
+  enum_values: string[];
+  created_at: string;
+  updated_at: string;
+}
+
 export interface RelationshipCreateRequest {
   name: string;
   from_table_id: string;
@@ -325,6 +348,7 @@ export interface DiagramDetailResponse {
   diagram: DiagramSummary;
   tables: TableResponse[];
   relationships: RelationshipResponse[];
+  custom_types: CustomTypeResponse[];
 }
 
 export interface PostgresConnectionRequest {

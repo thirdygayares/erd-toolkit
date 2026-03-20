@@ -8,6 +8,9 @@ from app.features.schema_editor.schemas import (
     ColumnCreateRequest,
     ColumnMutationResponse,
     ColumnUpdateRequest,
+    CustomTypeCreateRequest,
+    CustomTypeResponse,
+    CustomTypeUpdateRequest,
     RelationshipCreateRequest,
     RelationshipMutationResponse,
     RelationshipUpdateRequest,
@@ -94,6 +97,49 @@ def delete_column(
 ) -> ColumnMutationResponse:
     del diagram_id
     return ColumnMutationResponse(**service.delete_column(table_id, column_id, ctx))
+
+
+@router.post(
+    "/diagrams/{diagram_id}/custom-types",
+    response_model=CustomTypeResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_custom_type(
+    diagram_id: str,
+    payload: CustomTypeCreateRequest,
+    ctx: RequestContext = Depends(get_request_context),
+    service: SchemaEditorService = Depends(get_schema_editor_service),
+) -> CustomTypeResponse:
+    return CustomTypeResponse(**service.create_custom_type(diagram_id, payload, ctx))
+
+
+@router.patch(
+    "/diagrams/{diagram_id}/custom-types/{custom_type_id}",
+    response_model=CustomTypeResponse,
+)
+def update_custom_type(
+    diagram_id: str,
+    custom_type_id: str,
+    payload: CustomTypeUpdateRequest,
+    ctx: RequestContext = Depends(get_request_context),
+    service: SchemaEditorService = Depends(get_schema_editor_service),
+) -> CustomTypeResponse:
+    return CustomTypeResponse(
+        **service.update_custom_type(diagram_id, custom_type_id, payload, ctx)
+    )
+
+
+@router.delete(
+    "/diagrams/{diagram_id}/custom-types/{custom_type_id}",
+    response_model=CustomTypeResponse,
+)
+def delete_custom_type(
+    diagram_id: str,
+    custom_type_id: str,
+    ctx: RequestContext = Depends(get_request_context),
+    service: SchemaEditorService = Depends(get_schema_editor_service),
+) -> CustomTypeResponse:
+    return CustomTypeResponse(**service.delete_custom_type(diagram_id, custom_type_id, ctx))
 
 
 @router.post(

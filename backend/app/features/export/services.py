@@ -132,6 +132,12 @@ class ExportService:
                 source_schema_names=source_schema_names or [],
                 export_all_schemas=export_all_schemas,
             )
+            cur.execute(sql.GET_CUSTOM_TYPES, {"diagram_id": diagram_id})
+            custom_types = [
+                custom_type
+                for custom_type in cur.fetchall()
+                if custom_type["schema_name"] in selected_schema_names
+            ]
             tables = [
                 table for table in tables if table["schema_name"] in selected_schema_names
             ]
@@ -168,6 +174,22 @@ class ExportService:
 
         statements: list[str] = []
         warnings: list[str] = []
+
+        for custom_type in custom_types:
+            enum_values = custom_type.get("enum_values") or []
+            if not enum_values:
+                warnings.append(
+                    "-- WARNING: skipped enum type "
+                    f"{self._q(custom_type['type_name'])} because it has no values."
+                )
+                continue
+            statements.append(
+                self._render_custom_type_sql(
+                    target_schema=target_schema,
+                    type_name=custom_type["type_name"],
+                    enum_values=enum_values,
+                )
+            )
 
         for table in tables:
             export_table_name = export_table_lookup.get(str(table["table_id"]), table["table_name"])
@@ -300,10 +322,12 @@ class ExportService:
 
     @staticmethod
     def _render_type_sql(col: dict) -> str:
+        data_type = str(col["data_type"]).strip()
+        is_user_defined = data_type.replace("[]", "") == "USER-DEFINED"
         type_sql = (
-            col["udt_name"]
-            if col["data_type"] == "USER-DEFINED" and col["udt_name"]
-            else col["data_type"]
+            f"{col['udt_name']}{'[]' if data_type.endswith('[]') else ''}"
+            if is_user_defined and col["udt_name"]
+            else data_type
         )
         normalized = str(type_sql).strip()
         lower = normalized.lower()
@@ -312,6 +336,27 @@ class ExportService:
         if normalized.endswith("?"):
             return normalized[:-1].strip()
         return normalized
+
+    @staticmethod
+    def _quote_literal(value: str) -> str:
+        return "'" + value.replace("'", "''") + "'"
+
+    def _render_custom_type_sql(
+        self,
+        *,
+        target_schema: str,
+        type_name: str,
+        enum_values: list[str],
+    ) -> str:
+        labels = ", ".join(self._quote_literal(value) for value in enum_values)
+        return (
+            "DO $$\n"
+            "BEGIN\n"
+            f"  CREATE TYPE {self._q(target_schema)}.{self._q(type_name)} AS ENUM ({labels});\n"
+            "EXCEPTION\n"
+            "  WHEN duplicate_object THEN NULL;\n"
+            "END $$;"
+        )
 
     @classmethod
     def _is_identity_default(cls, default_sql: str) -> bool:

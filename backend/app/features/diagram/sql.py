@@ -44,6 +44,13 @@ FROM api.fn_diagram_get_relationships(
 );
 """
 
+GET_CUSTOM_TYPES = """
+SELECT *
+FROM api.fn_diagram_get_custom_types(
+    p_diagram_id => %(diagram_id)s::uuid
+);
+"""
+
 CREATE_SNAPSHOT = """
 SELECT *
 FROM api.fn_diagram_snapshot_create(

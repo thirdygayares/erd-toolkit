@@ -96,6 +96,35 @@ FROM api.fn_column_delete(
 );
 """
 
+INSERT_CUSTOM_TYPE = """
+SELECT *
+FROM api.fn_custom_type_create(
+    p_diagram_id => %(diagram_id)s::uuid,
+    p_schema_name => %(schema_name)s,
+    p_type_name => %(type_name)s,
+    p_enum_values => %(enum_values)s::text[]
+);
+"""
+
+UPDATE_CUSTOM_TYPE = """
+SELECT *
+FROM api.fn_custom_type_update(
+    p_diagram_id => %(diagram_id)s::uuid,
+    p_custom_type_id => %(custom_type_id)s::uuid,
+    p_schema_name => %(schema_name)s,
+    p_type_name => %(type_name)s,
+    p_enum_values => %(enum_values)s::text[]
+);
+"""
+
+DELETE_CUSTOM_TYPE = """
+SELECT *
+FROM api.fn_custom_type_delete(
+    p_diagram_id => %(diagram_id)s::uuid,
+    p_custom_type_id => %(custom_type_id)s::uuid
+);
+"""
+
 INSERT_RELATIONSHIP = """
 SELECT *
 FROM api.fn_relationship_create(
