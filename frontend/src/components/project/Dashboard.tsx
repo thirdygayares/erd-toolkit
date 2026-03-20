@@ -32,7 +32,13 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  type MouseEvent as ReactMouseEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import { useAuthSessionQuery } from "@/hooks/auth/useAuthSessionQuery";
 import { useCreateDiagramMutation } from "@/hooks/diagram/useCreateDiagramMutation";
@@ -108,6 +114,40 @@ const dialogFieldIdPrefix = "dialog-field-";
 const emptyTables: TableResponse[] = [];
 const emptyRelationships: DiagramDetailResponse["relationships"] = [];
 const emptyCustomTypes: CustomTypeResponse[] = [];
+const DEFAULT_DICTIONARY_COLUMN_WIDTH = 320;
+type DictionaryHeaderKey =
+  | "drag"
+  | "key"
+  | "column"
+  | "type"
+  | "notNull"
+  | "default"
+  | "example"
+  | "description"
+  | "actions";
+const MAX_DICTIONARY_COLUMN_WIDTH = 900;
+const dictionaryHeaderDefaults: Record<DictionaryHeaderKey, number> = {
+  drag: 44,
+  key: 88,
+  column: DEFAULT_DICTIONARY_COLUMN_WIDTH,
+  type: 120,
+  notNull: 120,
+  default: 220,
+  example: 190,
+  description: 210,
+  actions: 150,
+};
+const dictionaryHeaderMins: Record<DictionaryHeaderKey, number> = {
+  drag: 40,
+  key: 70,
+  column: 180,
+  type: 100,
+  notNull: 100,
+  default: 160,
+  example: 140,
+  description: 160,
+  actions: 130,
+};
 
 interface DashboardProps {
   projectId: string;
@@ -393,11 +433,21 @@ export function Dashboard({
   const [columnExampleDrafts, setColumnExampleDrafts] = useState<
     Record<string, string>
   >({});
+  const [dictionaryHeaderWidths, setDictionaryHeaderWidths] = useState<
+    Record<DictionaryHeaderKey, number>
+  >(dictionaryHeaderDefaults);
+  const [isColumnResizing, setIsColumnResizing] = useState(false);
   const [draggedColumn, setDraggedColumn] = useState<{
     tableId: string;
     columnId: string;
   } | null>(null);
   const [dragOverColumnId, setDragOverColumnId] = useState<string | null>(null);
+  const columnResizeRef = useRef<{
+    key: DictionaryHeaderKey;
+    startX: number;
+    startWidth: number;
+    latestWidth: number;
+  } | null>(null);
   const [activeFieldRow, setActiveFieldRow] = useState<{
     tableId: string;
     rowId: string;
@@ -846,6 +896,48 @@ export function Dashboard({
     window.localStorage.setItem("ERD_SIDEBAR_WIDTH", String(sidebarPanelWidth));
   }, [sidebarPanelWidth]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const raw = window.localStorage.getItem("ERD_DICTIONARY_HEADER_WIDTHS");
+    if (!raw) {
+      return;
+    }
+    try {
+      const parsed = JSON.parse(raw) as Partial<
+        Record<DictionaryHeaderKey, number>
+      >;
+      setDictionaryHeaderWidths((current) => {
+        const next = { ...current };
+        for (const key of Object.keys(
+          dictionaryHeaderDefaults,
+        ) as DictionaryHeaderKey[]) {
+          const value = parsed[key];
+          if (typeof value === "number" && Number.isFinite(value)) {
+            next[key] = Math.max(
+              dictionaryHeaderMins[key],
+              Math.min(MAX_DICTIONARY_COLUMN_WIDTH, Math.round(value)),
+            );
+          }
+        }
+        return next;
+      });
+    } catch {
+      // Ignore invalid localStorage payload.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem(
+      "ERD_DICTIONARY_HEADER_WIDTHS",
+      JSON.stringify(dictionaryHeaderWidths),
+    );
+  }, [dictionaryHeaderWidths]);
+
   // Handle resize events
   useEffect(() => {
     if (!isResizing) return;
@@ -1250,6 +1342,7 @@ export function Dashboard({
           is_unique: field.isUnique,
           default_sql: "",
           example_value: "",
+          ui_width: DEFAULT_DICTIONARY_COLUMN_WIDTH,
           comment_text: "",
         },
       });
@@ -1426,11 +1519,15 @@ export function Dashboard({
             data_type: column.data_type,
             udt_name: column.udt_name,
             is_nullable: column.is_nullable,
-          default_sql: column.default_sql,
-          is_primary_key: column.is_primary_key,
-          is_unique: column.is_unique,
-          example_value: column.example_value ?? "",
-          comment_text: column.comment_text ?? "",
+            default_sql: column.default_sql,
+            is_primary_key: column.is_primary_key,
+            is_unique: column.is_unique,
+            example_value: column.example_value ?? "",
+            ui_width:
+              typeof column.ui_width === "number" && column.ui_width > 0
+                ? column.ui_width
+                : DEFAULT_DICTIONARY_COLUMN_WIDTH,
+            comment_text: column.comment_text ?? "",
           },
         });
       }
@@ -1529,6 +1626,7 @@ export function Dashboard({
           is_unique: false,
           default_sql: "",
           example_value: "",
+          ui_width: DEFAULT_DICTIONARY_COLUMN_WIDTH,
           comment_text: "",
         },
       });
@@ -1711,6 +1809,68 @@ export function Dashboard({
         ? "border border-slate-300 bg-white focus:border-blue-500"
         : "border border-transparent bg-transparent text-slate-700 hover:bg-slate-100 focus:border-slate-300 focus:bg-white"
     }`;
+  }
+
+  function clampDictionaryColumnWidth(key: DictionaryHeaderKey, value: number) {
+    return Math.max(
+      dictionaryHeaderMins[key],
+      Math.min(MAX_DICTIONARY_COLUMN_WIDTH, Math.round(value)),
+    );
+  }
+
+  function getDictionaryHeaderWidth(key: DictionaryHeaderKey) {
+    const width = dictionaryHeaderWidths[key];
+    if (typeof width !== "number" || !Number.isFinite(width)) {
+      return dictionaryHeaderDefaults[key];
+    }
+    return clampDictionaryColumnWidth(key, width);
+  }
+
+  function startColumnWidthResize(
+    event: ReactMouseEvent<HTMLButtonElement>,
+    key: DictionaryHeaderKey,
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const startWidth = getDictionaryHeaderWidth(key);
+    columnResizeRef.current = {
+      key,
+      startX: event.clientX,
+      startWidth,
+      latestWidth: startWidth,
+    };
+    setIsColumnResizing(true);
+
+    const onPointerMove = (moveEvent: MouseEvent) => {
+      const active = columnResizeRef.current;
+      if (!active || active.key !== key) {
+        return;
+      }
+      const nextWidth = clampDictionaryColumnWidth(
+        key,
+        active.startWidth + moveEvent.clientX - active.startX,
+      );
+      active.latestWidth = nextWidth;
+      setDictionaryHeaderWidths((current) =>
+        current[key] === nextWidth
+          ? current
+          : {
+              ...current,
+              [key]: nextWidth,
+            },
+      );
+    };
+
+    const onPointerUp = () => {
+      columnResizeRef.current = null;
+      setIsColumnResizing(false);
+      window.removeEventListener("mousemove", onPointerMove);
+      window.removeEventListener("mouseup", onPointerUp);
+    };
+
+    window.addEventListener("mousemove", onPointerMove);
+    window.addEventListener("mouseup", onPointerUp);
   }
 
   async function commitColumnNameDraft(
@@ -3578,9 +3738,7 @@ export function Dashboard({
                       isNullable: true,
                     };
                     const tableDescriptionDraft =
-                      tableComments[table.table_id] ??
-                      table.comment_text ??
-                      "";
+                      tableComments[table.table_id] ?? table.comment_text ?? "";
                     const isNewFieldVisible =
                       openNewFieldTableId === table.table_id;
                     const isNewRowActive =
@@ -3727,32 +3885,153 @@ export function Dashboard({
                           <table className="min-w-[1180px] w-full text-xs">
                             <thead className="bg-slate-100 text-slate-600">
                               <tr>
-                                <th className="w-10 px-2 py-2 text-center font-semibold">
+                                <th
+                                  className="relative px-2 py-2 text-center font-semibold"
+                                  style={{
+                                    width: getDictionaryHeaderWidth("drag"),
+                                  }}
+                                >
                                   Drag
+                                  <button
+                                    type="button"
+                                    aria-label="Resize Drag column"
+                                    onMouseDown={(event) =>
+                                      startColumnWidthResize(event, "drag")
+                                    }
+                                    className="absolute top-0 right-0 h-full w-2 cursor-col-resize"
+                                  />
                                 </th>
-                                <th className="w-20 px-2 py-2 text-left font-semibold">
+                                <th
+                                  className="relative px-2 py-2 text-left font-semibold"
+                                  style={{
+                                    width: getDictionaryHeaderWidth("key"),
+                                  }}
+                                >
                                   Key
+                                  <button
+                                    type="button"
+                                    aria-label="Resize Key column"
+                                    onMouseDown={(event) =>
+                                      startColumnWidthResize(event, "key")
+                                    }
+                                    className="absolute top-0 right-0 h-full w-2 cursor-col-resize"
+                                  />
                                 </th>
-                                <th className="px-2 py-2 text-left font-semibold">
+                                <th
+                                  className="relative px-2 py-2 text-left font-semibold"
+                                  style={{
+                                    width: getDictionaryHeaderWidth("column"),
+                                  }}
+                                >
                                   Column
+                                  <button
+                                    type="button"
+                                    aria-label="Resize Column column"
+                                    onMouseDown={(event) =>
+                                      startColumnWidthResize(event, "column")
+                                    }
+                                    className="absolute top-0 right-0 h-full w-2 cursor-col-resize"
+                                  />
                                 </th>
-                                <th className="w-28 px-2 py-2 text-left font-semibold">
+                                <th
+                                  className="relative px-2 py-2 text-left font-semibold"
+                                  style={{
+                                    width: getDictionaryHeaderWidth("type"),
+                                  }}
+                                >
                                   Type
+                                  <button
+                                    type="button"
+                                    aria-label="Resize Type column"
+                                    onMouseDown={(event) =>
+                                      startColumnWidthResize(event, "type")
+                                    }
+                                    className="absolute top-0 right-0 h-full w-2 cursor-col-resize"
+                                  />
                                 </th>
-                                <th className="w-28 px-2 py-2 text-left font-semibold">
+                                <th
+                                  className="relative px-2 py-2 text-left font-semibold"
+                                  style={{
+                                    width: getDictionaryHeaderWidth("notNull"),
+                                  }}
+                                >
                                   Not Null
+                                  <button
+                                    type="button"
+                                    aria-label="Resize Not Null column"
+                                    onMouseDown={(event) =>
+                                      startColumnWidthResize(event, "notNull")
+                                    }
+                                    className="absolute top-0 right-0 h-full w-2 cursor-col-resize"
+                                  />
                                 </th>
-                                <th className="w-56 px-2 py-2 text-left font-semibold">
+                                <th
+                                  className="relative px-2 py-2 text-left font-semibold"
+                                  style={{
+                                    width: getDictionaryHeaderWidth("default"),
+                                  }}
+                                >
                                   Default
+                                  <button
+                                    type="button"
+                                    aria-label="Resize Default column"
+                                    onMouseDown={(event) =>
+                                      startColumnWidthResize(event, "default")
+                                    }
+                                    className="absolute top-0 right-0 h-full w-2 cursor-col-resize"
+                                  />
                                 </th>
-                                <th className="w-48 px-2 py-2 text-left font-semibold">
+                                <th
+                                  className="relative px-2 py-2 text-left font-semibold"
+                                  style={{
+                                    width: getDictionaryHeaderWidth("example"),
+                                  }}
+                                >
                                   Example
+                                  <button
+                                    type="button"
+                                    aria-label="Resize Example column"
+                                    onMouseDown={(event) =>
+                                      startColumnWidthResize(event, "example")
+                                    }
+                                    className="absolute top-0 right-0 h-full w-2 cursor-col-resize"
+                                  />
                                 </th>
-                                <th className="w-52 px-2 py-2 text-left font-semibold">
+                                <th
+                                  className="relative px-2 py-2 text-left font-semibold"
+                                  style={{
+                                    width:
+                                      getDictionaryHeaderWidth("description"),
+                                  }}
+                                >
                                   Description
+                                  <button
+                                    type="button"
+                                    aria-label="Resize Description column"
+                                    onMouseDown={(event) =>
+                                      startColumnWidthResize(
+                                        event,
+                                        "description",
+                                      )
+                                    }
+                                    className="absolute top-0 right-0 h-full w-2 cursor-col-resize"
+                                  />
                                 </th>
-                                <th className="w-40 px-2 py-2 text-left font-semibold">
+                                <th
+                                  className="relative px-2 py-2 text-left font-semibold"
+                                  style={{
+                                    width: getDictionaryHeaderWidth("actions"),
+                                  }}
+                                >
                                   Actions
+                                  <button
+                                    type="button"
+                                    aria-label="Resize Actions column"
+                                    onMouseDown={(event) =>
+                                      startColumnWidthResize(event, "actions")
+                                    }
+                                    className="absolute top-0 right-0 h-full w-2 cursor-col-resize"
+                                  />
                                 </th>
                               </tr>
                             </thead>
@@ -3791,7 +4070,7 @@ export function Dashboard({
                                 return (
                                   <tr
                                     key={column.column_id}
-                                    draggable
+                                    draggable={!isColumnResizing}
                                     onClick={() =>
                                       setActiveFieldRow({
                                         tableId: table.table_id,
@@ -3843,12 +4122,22 @@ export function Dashboard({
                                             : "bg-slate-50/50"
                                     }`}
                                   >
-                                    <td className="px-2 py-1.5 text-center">
+                                    <td
+                                      className="px-2 py-1.5 text-center"
+                                      style={{
+                                        width: getDictionaryHeaderWidth("drag"),
+                                      }}
+                                    >
                                       <span className="inline-flex cursor-grab rounded p-1 text-slate-500 hover:bg-slate-100">
                                         <GripVertical className="h-3.5 w-3.5" />
                                       </span>
                                     </td>
-                                    <td className="px-2 py-1.5">
+                                    <td
+                                      className="px-2 py-1.5"
+                                      style={{
+                                        width: getDictionaryHeaderWidth("key"),
+                                      }}
+                                    >
                                       <div className="flex flex-wrap gap-1">
                                         {column.is_primary_key ? (
                                           <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
@@ -3868,7 +4157,13 @@ export function Dashboard({
                                         ) : null}
                                       </div>
                                     </td>
-                                    <td className="px-2 py-1.5">
+                                    <td
+                                      className="px-2 py-1.5"
+                                      style={{
+                                        width:
+                                          getDictionaryHeaderWidth("column"),
+                                      }}
+                                    >
                                       <input
                                         value={nameDraft}
                                         onChange={(event) =>
@@ -3904,7 +4199,12 @@ export function Dashboard({
                                         )}
                                       />
                                     </td>
-                                    <td className="px-2 py-1.5">
+                                    <td
+                                      className="px-2 py-1.5"
+                                      style={{
+                                        width: getDictionaryHeaderWidth("type"),
+                                      }}
+                                    >
                                       {isActiveRow ? (
                                         <div className="relative">
                                           <select
@@ -3955,7 +4255,13 @@ export function Dashboard({
                                         </button>
                                       )}
                                     </td>
-                                    <td className="px-2 py-1.5">
+                                    <td
+                                      className="px-2 py-1.5"
+                                      style={{
+                                        width:
+                                          getDictionaryHeaderWidth("notNull"),
+                                      }}
+                                    >
                                       {isActiveRow ? (
                                         <div className="relative">
                                           <select
@@ -4011,7 +4317,13 @@ export function Dashboard({
                                         </button>
                                       )}
                                     </td>
-                                    <td className="px-2 py-1.5">
+                                    <td
+                                      className="px-2 py-1.5"
+                                      style={{
+                                        width:
+                                          getDictionaryHeaderWidth("default"),
+                                      }}
+                                    >
                                       <input
                                         value={defaultDraft}
                                         onChange={(event) =>
@@ -4047,7 +4359,13 @@ export function Dashboard({
                                         )}
                                       />
                                     </td>
-                                    <td className="px-2 py-1.5">
+                                    <td
+                                      className="px-2 py-1.5"
+                                      style={{
+                                        width:
+                                          getDictionaryHeaderWidth("example"),
+                                      }}
+                                    >
                                       <input
                                         value={exampleDraft}
                                         onChange={(event) =>
@@ -4083,7 +4401,15 @@ export function Dashboard({
                                         )}
                                       />
                                     </td>
-                                    <td className="px-2 py-1.5">
+                                    <td
+                                      className="px-2 py-1.5"
+                                      style={{
+                                        width:
+                                          getDictionaryHeaderWidth(
+                                            "description",
+                                          ),
+                                      }}
+                                    >
                                       <input
                                         value={descriptionDraft}
                                         onChange={(event) =>
@@ -4119,7 +4445,13 @@ export function Dashboard({
                                         )}
                                       />
                                     </td>
-                                    <td className="px-2 py-1.5">
+                                    <td
+                                      className="px-2 py-1.5"
+                                      style={{
+                                        width:
+                                          getDictionaryHeaderWidth("actions"),
+                                      }}
+                                    >
                                       <div className="flex items-center gap-1">
                                         <button
                                           type="button"
@@ -4209,13 +4541,28 @@ export function Dashboard({
                                       : "bg-slate-50"
                                   }`}
                                 >
-                                  <td className="px-2 py-2" />
-                                  <td className="px-2 py-2">
+                                  <td
+                                    className="px-2 py-2"
+                                    style={{
+                                      width: getDictionaryHeaderWidth("drag"),
+                                    }}
+                                  />
+                                  <td
+                                    className="px-2 py-2"
+                                    style={{
+                                      width: getDictionaryHeaderWidth("key"),
+                                    }}
+                                  >
                                     <span className="text-[11px] font-semibold text-blue-700">
                                       NEW FIELD
                                     </span>
                                   </td>
-                                  <td className="px-2 py-2">
+                                  <td
+                                    className="px-2 py-2"
+                                    style={{
+                                      width: getDictionaryHeaderWidth("column"),
+                                    }}
+                                  >
                                     <input
                                       value={columnDraft.name}
                                       onChange={(event) =>
@@ -4240,7 +4587,12 @@ export function Dashboard({
                                       )}
                                     />
                                   </td>
-                                  <td className="px-2 py-2">
+                                  <td
+                                    className="px-2 py-2"
+                                    style={{
+                                      width: getDictionaryHeaderWidth("type"),
+                                    }}
+                                  >
                                     <div className="relative">
                                       <select
                                         value={columnDraft.dataType}
@@ -4268,7 +4620,13 @@ export function Dashboard({
                                       <ChevronDown className="pointer-events-none absolute top-1.5 right-1 h-3.5 w-3.5 text-slate-500" />
                                     </div>
                                   </td>
-                                  <td className="px-2 py-2">
+                                  <td
+                                    className="px-2 py-2"
+                                    style={{
+                                      width:
+                                        getDictionaryHeaderWidth("notNull"),
+                                    }}
+                                  >
                                     <div className="relative">
                                       <select
                                         value={
@@ -4302,10 +4660,34 @@ export function Dashboard({
                                       <ChevronDown className="pointer-events-none absolute top-1.5 right-1 h-3.5 w-3.5 text-slate-500" />
                                     </div>
                                   </td>
-                                  <td className="px-2 py-2" />
-                                  <td className="px-2 py-2" />
-                                  <td className="px-2 py-2" />
-                                  <td className="px-2 py-2">
+                                  <td
+                                    className="px-2 py-2"
+                                    style={{
+                                      width:
+                                        getDictionaryHeaderWidth("default"),
+                                    }}
+                                  />
+                                  <td
+                                    className="px-2 py-2"
+                                    style={{
+                                      width:
+                                        getDictionaryHeaderWidth("example"),
+                                    }}
+                                  />
+                                  <td
+                                    className="px-2 py-2"
+                                    style={{
+                                      width:
+                                        getDictionaryHeaderWidth("description"),
+                                    }}
+                                  />
+                                  <td
+                                    className="px-2 py-2"
+                                    style={{
+                                      width:
+                                        getDictionaryHeaderWidth("actions"),
+                                    }}
+                                  >
                                     <button
                                       type="button"
                                       onClick={() =>

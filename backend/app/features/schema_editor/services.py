@@ -28,6 +28,7 @@ class SchemaEditorService:
             return row
         payload = dict(row)
         payload.setdefault("example_value", None)
+        payload.setdefault("ui_width", None)
         return payload
 
     def create_table(self, diagram_id: str, payload: TableCreateRequest, ctx: RequestContext) -> dict:
@@ -102,13 +103,18 @@ class SchemaEditorService:
                     "is_primary_key": payload.is_primary_key,
                     "is_unique": payload.is_unique,
                     "example_value": payload.example_value,
+                    "ui_width": payload.ui_width,
                     "comment_text": payload.comment_text,
                 }
                 try:
                     cur.execute(sql.INSERT_COLUMN, params)
                 except UndefinedFunction:
-                    # Backward compatibility: DB may still have the old 9-arg function.
-                    cur.execute(sql.INSERT_COLUMN_LEGACY, params)
+                    # Backward compatibility for DBs that do not yet support ui_width.
+                    try:
+                        cur.execute(sql.INSERT_COLUMN_LEGACY_WITH_EXAMPLE_COMMENT, params)
+                    except UndefinedFunction:
+                        # Older deployments may still have the legacy 9-arg function.
+                        cur.execute(sql.INSERT_COLUMN_LEGACY, params)
 
                 row = self._normalize_column_row(cur.fetchone())
                 if not row:
@@ -137,13 +143,18 @@ class SchemaEditorService:
                     "is_primary_key": payload.is_primary_key,
                     "is_unique": payload.is_unique,
                     "example_value": payload.example_value,
+                    "ui_width": payload.ui_width,
                     "comment_text": payload.comment_text,
                 }
                 try:
                     cur.execute(sql.UPDATE_COLUMN, params)
                 except UndefinedFunction:
-                    # Backward compatibility: DB may still have the old 10-arg function.
-                    cur.execute(sql.UPDATE_COLUMN_LEGACY, params)
+                    # Backward compatibility for DBs that do not yet support ui_width.
+                    try:
+                        cur.execute(sql.UPDATE_COLUMN_LEGACY_WITH_EXAMPLE_COMMENT, params)
+                    except UndefinedFunction:
+                        # Older deployments may still have the legacy 10-arg function.
+                        cur.execute(sql.UPDATE_COLUMN_LEGACY, params)
 
                 row = self._normalize_column_row(cur.fetchone())
                 if not row:

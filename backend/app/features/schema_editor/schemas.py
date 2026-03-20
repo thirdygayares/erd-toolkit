@@ -70,6 +70,7 @@ class ColumnCreateRequest(BaseModel):
     is_primary_key: bool = False
     is_unique: bool = False
     example_value: str | None = None
+    ui_width: float | None = Field(default=None, gt=0)
     comment_text: str | None = None
 
 
@@ -83,6 +84,7 @@ class ColumnUpdateRequest(BaseModel):
     is_primary_key: bool | None = None
     is_unique: bool | None = None
     example_value: str | None = None
+    ui_width: float | None = Field(default=None, gt=0)
     comment_text: str | None = None
 
 
@@ -98,6 +100,7 @@ class ColumnMutationResponse(BaseModel):
     is_primary_key: bool
     is_unique: bool
     example_value: str | None = None
+    ui_width: float | None = None
     comment_text: str | None = None
     created_at: datetime
     updated_at: datetime

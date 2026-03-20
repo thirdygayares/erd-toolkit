@@ -90,6 +90,7 @@ class StubDiagramService:
                             "is_primary_key": True,
                             "is_unique": True,
                             "example_value": None,
+                            "ui_width": 320,
                             "comment_text": "column description",
                         }
                     ],
@@ -151,6 +152,7 @@ def test_get_diagram_detail(client, app):
         response.json()["tables"][0]["columns"][0]["comment_text"]
         == "column description"
     )
+    assert response.json()["tables"][0]["columns"][0]["ui_width"] == 320
     assert response.json()["custom_types"][0]["type_name"] == "order_status"
 
 
