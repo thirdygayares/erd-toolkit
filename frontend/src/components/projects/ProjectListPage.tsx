@@ -27,8 +27,8 @@ export function ProjectListPage() {
   const [isClient, setIsClient] = useState(false);
   const [refreshAttempted, setRefreshAttempted] = useState(false);
 
-  const hasSessionCookie = Boolean(getBrowserCookie("erd_csrf_token"));
-  const sessionQuery = useAuthSessionQuery(hasSessionCookie);
+  const canReadCsrfCookie = Boolean(getBrowserCookie("erd_csrf_token"));
+  const sessionQuery = useAuthSessionQuery();
   const refreshSessionMutation = useRefreshSessionMutation();
   const { data: authSession, isLoading: authLoading } = sessionQuery;
   const userId = authSession?.user.user_id ?? null;
@@ -40,7 +40,7 @@ export function ProjectListPage() {
   const ensureDefaultMutation = useEnsureDefaultWorkspaceMutation();
   const { mutate: ensureDefaultWorkspace } = ensureDefaultMutation;
   const isSessionRecoveryPending =
-    hasSessionCookie && sessionQuery.isError && !refreshAttempted;
+    canReadCsrfCookie && sessionQuery.isError && !refreshAttempted;
 
   const defaultWorkspace = workspaces.find(
     (workspace) =>
@@ -69,7 +69,7 @@ export function ProjectListPage() {
   }, []);
 
   useEffect(() => {
-    if (!hasSessionCookie || !sessionQuery.isError || refreshAttempted) {
+    if (!canReadCsrfCookie || !sessionQuery.isError || refreshAttempted) {
       return;
     }
 
@@ -79,7 +79,7 @@ export function ProjectListPage() {
       .then(() => sessionQuery.refetch())
       .catch(() => undefined);
   }, [
-    hasSessionCookie,
+    canReadCsrfCookie,
     refreshAttempted,
     refreshSessionMutation,
     sessionQuery,
@@ -101,15 +101,21 @@ export function ProjectListPage() {
       return;
     }
 
-    if (!hasSessionCookie || (refreshAttempted && !authSession?.user)) {
+    if (!authSession?.user && (!sessionQuery.isError || refreshAttempted)) {
+      router.push("/");
+      return;
+    }
+
+    if (sessionQuery.isError && (!canReadCsrfCookie || refreshAttempted)) {
       router.push("/");
     }
   }, [
     authLoading,
     authSession?.user,
-    hasSessionCookie,
+    canReadCsrfCookie,
     refreshAttempted,
     refreshSessionMutation.isPending,
+    sessionQuery.isError,
     router,
   ]);
 
@@ -235,9 +241,7 @@ export function ProjectListPage() {
                 <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
                   Projects
                 </p>
-                <p className="mt-2 text-2xl font-semibold">
-                  {projects.length}
-                </p>
+                <p className="mt-2 text-2xl font-semibold">{projects.length}</p>
               </div>
             </div>
             <div className="mt-4 rounded-2xl border border-border/60 bg-white/80 px-4 py-3">

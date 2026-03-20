@@ -26,8 +26,8 @@ import { GuestClaimDialog } from "./GuestClaimDialog";
 export function AuthCallbackHandler() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const hasSessionCookie = Boolean(getBrowserCookie("erd_csrf_token"));
-  const sessionQuery = useAuthSessionQuery(hasSessionCookie);
+  const canReadCsrfCookie = Boolean(getBrowserCookie("erd_csrf_token"));
+  const sessionQuery = useAuthSessionQuery();
   const refreshSessionMutation = useRefreshSessionMutation();
   const claimGuestMutation = useClaimGuestMutation();
   const [refreshAttempted, setRefreshAttempted] = useState(false);
@@ -38,7 +38,7 @@ export function AuthCallbackHandler() {
   const loginError = searchParams.get("error");
 
   useEffect(() => {
-    if (!hasSessionCookie || !sessionQuery.isError || refreshAttempted) {
+    if (!canReadCsrfCookie || !sessionQuery.isError || refreshAttempted) {
       return;
     }
 
@@ -50,7 +50,7 @@ export function AuthCallbackHandler() {
         return undefined;
       });
   }, [
-    hasSessionCookie,
+    canReadCsrfCookie,
     refreshAttempted,
     refreshSessionMutation,
     sessionQuery,
@@ -154,7 +154,7 @@ export function AuthCallbackHandler() {
     );
   }
 
-  if (!hasSessionCookie || sessionQuery.isError || !sessionQuery.data?.user) {
+  if (sessionQuery.isError || !sessionQuery.data?.user) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top_left,_rgba(244,63,94,0.16),_transparent_25%),linear-gradient(180deg,_#fff7ed_0%,_#f8fafc_100%)] px-4">
         <Card className="w-full max-w-xl">

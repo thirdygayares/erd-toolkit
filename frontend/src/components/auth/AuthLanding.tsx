@@ -26,8 +26,8 @@ type BootstrapChoice = "guest" | "personal" | null;
 export function AuthLanding() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const hasSessionCookie = Boolean(getBrowserCookie("erd_csrf_token"));
-  const sessionQuery = useAuthSessionQuery(hasSessionCookie);
+  const canReadCsrfCookie = Boolean(getBrowserCookie("erd_csrf_token"));
+  const sessionQuery = useAuthSessionQuery();
   const refreshSessionMutation = useRefreshSessionMutation();
   const logoutMutation = useLogoutMutation();
   const [bootstrapChoice, setBootstrapChoice] = useState<BootstrapChoice>(null);
@@ -45,7 +45,7 @@ export function AuthLanding() {
   }, [router, shareSlug]);
 
   useEffect(() => {
-    if (!hasSessionCookie || !sessionQuery.isError || refreshAttempted) {
+    if (!canReadCsrfCookie || !sessionQuery.isError || refreshAttempted) {
       return;
     }
 
@@ -55,7 +55,7 @@ export function AuthLanding() {
       .then(() => sessionQuery.refetch())
       .catch(() => undefined);
   }, [
-    hasSessionCookie,
+    canReadCsrfCookie,
     refreshAttempted,
     refreshSessionMutation,
     sessionQuery,

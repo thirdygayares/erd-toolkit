@@ -1,7 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  turbopack: {
+    // Keep Turbopack scoped to this app even when other lockfiles exist nearby.
+    root: process.cwd(),
+  },
   reactCompiler: true,
 };
 
