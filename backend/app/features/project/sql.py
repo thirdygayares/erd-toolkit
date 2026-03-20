@@ -10,6 +10,14 @@ FROM api.fn_project_create(
 );
 """
 
+DUPLICATE_PROJECT = """
+SELECT *
+FROM api.fn_project_duplicate(
+    p_project_id => %(project_id)s::uuid,
+    p_name => %(name)s
+);
+"""
+
 GET_PROJECT_BY_SHARE = """
 SELECT *
 FROM api.fn_project_get_by_share_slug(
