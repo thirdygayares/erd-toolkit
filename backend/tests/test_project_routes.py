@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import uuid4
 
+from app.core.errors import ConflictError
 from app.features.project.routers import get_project_service
 
 
@@ -89,6 +90,21 @@ class StubProjectService:
             }
         ]
 
+    def duplicate_project(self, project_id, new_name, ctx):
+        return {
+            "project_id": self.project_id,
+            "workspace_id": self.workspace_id,
+            "owner_user_id": None,
+            "name": new_name,
+            "description": "Copied project",
+            "visibility": "private",
+            "share_slug": "share-abc-copy",
+            "allow_anonymous_edit": False,
+            "is_archived": False,
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
+        }
+
 
 def test_create_project(client, app):
     service = StubProjectService()
@@ -128,3 +144,34 @@ def test_list_projects(client, app):
     body = response.json()
     assert len(body) == 1
     assert body[0]["workspace_name"] == "Default Workspace"
+
+
+def test_duplicate_project(client, app):
+    service = StubProjectService()
+    app.dependency_overrides[get_project_service] = lambda: service
+
+    response = client.post(
+        f"/api/v1/projects/{uuid4()}/duplicate",
+        json={"name": "Copy of Project"},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["name"] == "Copy of Project"
+
+
+class DuplicateNameProjectService(StubProjectService):
+    def duplicate_project(self, project_id, new_name, ctx):
+        raise ConflictError("A project with that name already exists in this workspace.")
+
+
+def test_duplicate_project_returns_409_for_duplicate_name(client, app):
+    service = DuplicateNameProjectService()
+    app.dependency_overrides[get_project_service] = lambda: service
+
+    response = client.post(
+        f"/api/v1/projects/{uuid4()}/duplicate",
+        json={"name": "Copy of Project"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "A project with that name already exists in this workspace."

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from psycopg.errors import UniqueViolation
+
 from app.core.context import RequestContext
 from app.core.db import Database
-from app.core.errors import NotFoundError
+from app.core.errors import ConflictError, NotFoundError
 from app.features.project import sql
 from app.features.project.schemas import ProjectCreateRequest, ProjectVisibilityUpdateRequest
 
@@ -11,21 +13,32 @@ class ProjectService:
     def __init__(self, db: Database) -> None:
         self.db = db
 
+    @staticmethod
+    def _raise_conflict_for_unique_violation(exc: UniqueViolation) -> None:
+        constraint_name = getattr(getattr(exc, "diag", None), "constraint_name", None)
+        message = str(exc)
+        if constraint_name == "project_workspace_name_unq" or "project_workspace_name_unq" in message:
+            raise ConflictError("A project with that name already exists in this workspace.") from exc
+        raise exc
+
     def create_project(self, payload: ProjectCreateRequest, ctx: RequestContext) -> dict:
         with self.db.connection() as conn:
             self.db.apply_request_context(conn, ctx)
             with conn.cursor() as cur:
-                cur.execute(
-                    sql.CREATE_PROJECT,
-                    {
-                        "workspace_id": str(payload.workspace_id),
-                        "name": payload.name,
-                        "visibility": payload.visibility,
-                        "description": payload.description,
-                        "allow_anonymous_edit": payload.allow_anonymous_edit,
-                        "share_slug": payload.share_slug,
-                    },
-                )
+                try:
+                    cur.execute(
+                        sql.CREATE_PROJECT,
+                        {
+                            "workspace_id": str(payload.workspace_id),
+                            "name": payload.name,
+                            "visibility": payload.visibility,
+                            "description": payload.description,
+                            "allow_anonymous_edit": payload.allow_anonymous_edit,
+                            "share_slug": payload.share_slug,
+                        },
+                    )
+                except UniqueViolation as exc:
+                    self._raise_conflict_for_unique_violation(exc)
                 row = cur.fetchone()
                 if not row or row.get("project_id") is None:
                     raise NotFoundError("unable to create project")
@@ -86,3 +99,22 @@ class ProjectService:
             with conn.cursor() as cur:
                 cur.execute(sql.LIST_PROJECTS)
                 return cur.fetchall()
+
+    def duplicate_project(self, project_id: str, new_name: str, ctx: RequestContext) -> dict:
+        with self.db.connection() as conn:
+            self.db.apply_request_context(conn, ctx)
+            with conn.cursor() as cur:
+                try:
+                    cur.execute(
+                        sql.DUPLICATE_PROJECT,
+                        {
+                            "project_id": project_id,
+                            "name": new_name,
+                        },
+                    )
+                except UniqueViolation as exc:
+                    self._raise_conflict_for_unique_violation(exc)
+                row = cur.fetchone()
+                if not row or row.get("project_id") is None:
+                    raise NotFoundError("unable to duplicate project")
+                return row
