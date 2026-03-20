@@ -28,13 +28,17 @@ class TableCreateRequest(BaseModel):
     schema_name: str = Field(default="public", min_length=1, max_length=63)
     table_name: str = Field(min_length=1, max_length=63)
     display_name: str | None = None
+    comment_text: str | None = None
     pos_x: float = 0
     pos_y: float = 0
     color_hex: str | None = None
 
 
 class TableUpdateRequest(BaseModel):
+    schema_name: str | None = Field(default=None, min_length=1, max_length=63)
+    table_name: str | None = Field(default=None, min_length=1, max_length=63)
     display_name: str | None = None
+    comment_text: str | None = None
     pos_x: float | None = None
     pos_y: float | None = None
     color_hex: str | None = None
@@ -47,6 +51,7 @@ class TableMutationResponse(BaseModel):
     schema_name: str
     table_name: str
     display_name: str | None
+    comment_text: str | None = None
     pos_x: float
     pos_y: float
     color_hex: str | None
@@ -65,6 +70,7 @@ class ColumnCreateRequest(BaseModel):
     is_primary_key: bool = False
     is_unique: bool = False
     example_value: str | None = None
+    comment_text: str | None = None
 
 
 class ColumnUpdateRequest(BaseModel):
@@ -77,6 +83,7 @@ class ColumnUpdateRequest(BaseModel):
     is_primary_key: bool | None = None
     is_unique: bool | None = None
     example_value: str | None = None
+    comment_text: str | None = None
 
 
 class ColumnMutationResponse(BaseModel):
@@ -91,6 +98,7 @@ class ColumnMutationResponse(BaseModel):
     is_primary_key: bool
     is_unique: bool
     example_value: str | None = None
+    comment_text: str | None = None
     created_at: datetime
     updated_at: datetime
 

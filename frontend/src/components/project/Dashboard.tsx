@@ -1248,6 +1248,9 @@ export function Dashboard({
           is_nullable: field.isNullable,
           is_primary_key: field.isPrimaryKey,
           is_unique: field.isUnique,
+          default_sql: "",
+          example_value: "",
+          comment_text: "",
         },
       });
     }
@@ -1423,9 +1426,11 @@ export function Dashboard({
             data_type: column.data_type,
             udt_name: column.udt_name,
             is_nullable: column.is_nullable,
-            default_sql: column.default_sql,
-            is_primary_key: column.is_primary_key,
-            is_unique: column.is_unique,
+          default_sql: column.default_sql,
+          is_primary_key: column.is_primary_key,
+          is_unique: column.is_unique,
+          example_value: column.example_value ?? "",
+          comment_text: column.comment_text ?? "",
           },
         });
       }
@@ -1522,6 +1527,9 @@ export function Dashboard({
           is_nullable: draft.isNullable,
           is_primary_key: false,
           is_unique: false,
+          default_sql: "",
+          example_value: "",
+          comment_text: "",
         },
       });
 
@@ -1602,7 +1610,7 @@ export function Dashboard({
       isNullable: column.is_nullable,
       defaultValue: column.default_sql ?? "",
       example: column.example_value ?? "",
-      comments: columnComments[column.column_id] ?? "",
+      comments: columnComments[column.column_id] ?? column.comment_text ?? "",
       baseType,
     });
   }
@@ -1656,6 +1664,7 @@ export function Dashboard({
       is_nullable: nextIsNullable,
       default_sql: nextDefault,
       example_value: nextExample,
+      comment_text: fieldAttributesDraft.comments.trim(),
     };
 
     if (currentTypeName !== dataTypeName) {
@@ -1769,6 +1778,59 @@ export function Dashboard({
       // The API uses COALESCE for patches; empty string is used to clear.
       example_value: draftValue === "" ? "" : draftValue,
     });
+  }
+
+  async function commitColumnCommentDraft(
+    tableId: string,
+    column: ColumnResponse,
+  ) {
+    const draftValue = columnComments[column.column_id];
+    if (draftValue === undefined) {
+      return;
+    }
+
+    const currentValue = column.comment_text ?? "";
+    if (draftValue === currentValue) {
+      return;
+    }
+
+    await updateColumn(tableId, column.column_id, {
+      // The API uses COALESCE for patches; empty string is used to clear.
+      comment_text: draftValue === "" ? "" : draftValue,
+    });
+  }
+
+  async function commitTableCommentDraft(table: TableResponse) {
+    if (!diagramId) {
+      return;
+    }
+
+    const draftValue = tableComments[table.table_id];
+    if (draftValue === undefined) {
+      return;
+    }
+
+    const currentValue = table.comment_text ?? "";
+    if (draftValue === currentValue) {
+      return;
+    }
+
+    try {
+      await updateTableMutation.mutateAsync({
+        diagramId,
+        tableId: table.table_id,
+        payload: {
+          comment_text: draftValue === "" ? "" : draftValue,
+        },
+      });
+      setStatusMessage("Table description updated.");
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Unable to update table description.";
+      setStatusMessage(message);
+    }
   }
 
   async function reorderTableColumns(
@@ -3281,7 +3343,9 @@ export function Dashboard({
                                       </div>
                                       <textarea
                                         value={
-                                          tableComments[table.table_id] ?? ""
+                                          tableComments[table.table_id] ??
+                                          table.comment_text ??
+                                          ""
                                         }
                                         onChange={(event) =>
                                           setTableComments((current) => ({
@@ -3289,6 +3353,9 @@ export function Dashboard({
                                             [table.table_id]:
                                               event.target.value,
                                           }))
+                                        }
+                                        onBlur={() =>
+                                          void commitTableCommentDraft(table)
                                         }
                                         placeholder="No comments"
                                         className="h-12 w-full rounded-md border border-slate-300 p-1.5 text-xs outline-none focus:border-blue-500"
@@ -3511,7 +3578,9 @@ export function Dashboard({
                       isNullable: true,
                     };
                     const tableDescriptionDraft =
-                      tableComments[table.table_id] ?? "";
+                      tableComments[table.table_id] ??
+                      table.comment_text ??
+                      "";
                     const isNewFieldVisible =
                       openNewFieldTableId === table.table_id;
                     const isNewRowActive =
@@ -3643,6 +3712,13 @@ export function Dashboard({
                                 [table.table_id]: event.target.value,
                               }))
                             }
+                            onBlur={() => void commitTableCommentDraft(table)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") {
+                                event.preventDefault();
+                                void commitTableCommentDraft(table);
+                              }
+                            }}
                             className="w-full rounded-md border border-transparent bg-transparent px-2 py-0.5 text-xs text-slate-600 outline-none focus:border-slate-300 focus:bg-white"
                           />
                         </div>
@@ -3694,7 +3770,9 @@ export function Dashboard({
                                   column.example_value ??
                                   "";
                                 const descriptionDraft =
-                                  columnComments[column.column_id] ?? "";
+                                  columnComments[column.column_id] ??
+                                  column.comment_text ??
+                                  "";
                                 const isDragging =
                                   draggedColumn?.columnId === column.column_id;
                                 const isDragOver =
@@ -4021,6 +4099,21 @@ export function Dashboard({
                                             rowId: column.column_id,
                                           })
                                         }
+                                        onBlur={() =>
+                                          void commitColumnCommentDraft(
+                                            table.table_id,
+                                            column,
+                                          )
+                                        }
+                                        onKeyDown={(event) => {
+                                          if (event.key === "Enter") {
+                                            event.preventDefault();
+                                            void commitColumnCommentDraft(
+                                              table.table_id,
+                                              column,
+                                            );
+                                          }
+                                        }}
                                         className={getDictionaryInputClass(
                                           isActiveRow,
                                         )}

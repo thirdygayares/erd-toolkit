@@ -71,6 +71,7 @@ class StubDiagramService:
                     "schema_name": "public",
                     "table_name": "users",
                     "display_name": "Users",
+                    "comment_text": "table description",
                     "pos_x": 10,
                     "pos_y": 20,
                     "width": None,
@@ -89,6 +90,7 @@ class StubDiagramService:
                             "is_primary_key": True,
                             "is_unique": True,
                             "example_value": None,
+                            "comment_text": "column description",
                         }
                     ],
                 }
@@ -144,6 +146,11 @@ def test_get_diagram_detail(client, app):
 
     assert response.status_code == 200
     assert len(response.json()["tables"]) == 1
+    assert response.json()["tables"][0]["comment_text"] == "table description"
+    assert (
+        response.json()["tables"][0]["columns"][0]["comment_text"]
+        == "column description"
+    )
     assert response.json()["custom_types"][0]["type_name"] == "order_status"
 
 

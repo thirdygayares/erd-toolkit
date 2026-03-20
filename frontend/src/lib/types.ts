@@ -169,6 +169,7 @@ export interface TableCreateRequest {
   schema_name: string;
   table_name: string;
   display_name?: string | null;
+  comment_text?: string | null;
   pos_x: number;
   pos_y: number;
   color_hex?: string | null;
@@ -176,6 +177,7 @@ export interface TableCreateRequest {
 
 export interface TableUpdateRequest {
   display_name?: string | null;
+  comment_text?: string | null;
   pos_x?: number | null;
   pos_y?: number | null;
   color_hex?: string | null;
@@ -188,6 +190,7 @@ export interface TableMutationResponse {
   schema_name: string;
   table_name: string;
   display_name: string | null;
+  comment_text: string | null;
   pos_x: number;
   pos_y: number;
   color_hex: string | null;
@@ -206,6 +209,7 @@ export interface ColumnCreateRequest {
   is_primary_key: boolean;
   is_unique: boolean;
   example_value?: string | null;
+  comment_text?: string | null;
 }
 
 export interface ColumnUpdateRequest {
@@ -218,6 +222,7 @@ export interface ColumnUpdateRequest {
   is_primary_key?: boolean | null;
   is_unique?: boolean | null;
   example_value?: string | null;
+  comment_text?: string | null;
 }
 
 export interface ColumnMutationResponse {
@@ -232,6 +237,7 @@ export interface ColumnMutationResponse {
   is_primary_key: boolean;
   is_unique: boolean;
   example_value: string | null;
+  comment_text: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -314,6 +320,7 @@ export interface ColumnResponse {
   is_primary_key: boolean;
   is_unique: boolean;
   example_value: string | null;
+  comment_text: string | null;
 }
 
 export interface TableResponse {
@@ -322,6 +329,7 @@ export interface TableResponse {
   schema_name: string;
   table_name: string;
   display_name: string | null;
+  comment_text: string | null;
   pos_x: number;
   pos_y: number;
   width: number | null;
