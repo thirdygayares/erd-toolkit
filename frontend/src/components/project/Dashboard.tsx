@@ -30,6 +30,7 @@ import {
   Upload,
   X,
 } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -2523,9 +2524,12 @@ export function Dashboard({
                 <PanelLeftOpen className="h-4 w-4" />
               )}
             </button>
-            <span className="rounded bg-slate-900 px-2 py-1 text-xs text-white">
+            <Link
+              href="/"
+              className="inline-flex items-center rounded bg-slate-900 px-2 py-1 text-xs text-white transition-opacity hover:opacity-80"
+            >
               ERD
-            </span>
+            </Link>
             <span className="max-w-[220px] truncate lg:max-w-[380px]">
               {projectQuery.data.name}
             </span>

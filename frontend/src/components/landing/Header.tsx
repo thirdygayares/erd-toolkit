@@ -1,6 +1,7 @@
 "use client";
 
 import { Database, Menu, X } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -28,18 +29,12 @@ export function Header({
   return (
     <header className="sticky top-0 z-50 border-b border-border/40 bg-white/80 backdrop-blur-lg">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
-        <button
-          className="flex items-center gap-2.5 text-foreground"
-          onClick={() => {
-            window.scrollTo({ top: 0, behavior: "smooth" });
-          }}
-          type="button"
-        >
+        <Link className="flex items-center gap-2.5 text-foreground" href="/">
           <Database className="h-5 w-5 text-amber-500" />
           <span className="text-lg font-semibold tracking-tight">
             ERD Toolkit
           </span>
-        </button>
+        </Link>
 
         <nav className="hidden items-center gap-1 md:flex">
           {navLinks.map((link) => (
