@@ -270,6 +270,7 @@ export function Dashboard({
   const [isDuplicateProjectOpen, setIsDuplicateProjectOpen] = useState(false);
   const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false);
   const [duplicateProjectName, setDuplicateProjectName] = useState("");
+  const [duplicateProjectError, setDuplicateProjectError] = useState("");
   const [isMounted, setIsMounted] = useState(false);
 
   const [statusMessage, setStatusMessage] = useState("Loading project...");
@@ -2187,6 +2188,8 @@ export function Dashboard({
       return;
     }
 
+    setDuplicateProjectError("");
+
     try {
       const newProject = await duplicateProjectMutation.mutateAsync({
         projectId: projectId,
@@ -2194,10 +2197,12 @@ export function Dashboard({
       });
       setIsDuplicateProjectOpen(false);
       setDuplicateProjectName("");
+      setDuplicateProjectError("");
       setStatusMessage("Project duplicated successfully.");
       router.push(`/project/${newProject.project_id}`);
     } catch (error) {
       const message = getApiErrorMessage(error, "Unable to duplicate project.");
+      setDuplicateProjectError(message);
       setStatusMessage(message);
     }
   }
@@ -2206,6 +2211,7 @@ export function Dashboard({
     setIsActionsMenuOpen(false);
     if (projectQuery.data) {
       setDuplicateProjectName(`Copy of ${projectQuery.data.name}`);
+      setDuplicateProjectError("");
       setIsDuplicateProjectOpen(true);
     }
   }
@@ -3924,17 +3930,33 @@ export function Dashboard({
                       <input
                         id="duplicateName"
                         value={duplicateProjectName}
-                        onChange={(e) =>
-                          setDuplicateProjectName(e.target.value)
-                        }
-                        className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                        onChange={(e) => {
+                          setDuplicateProjectName(e.target.value);
+                          if (duplicateProjectError) {
+                            setDuplicateProjectError("");
+                          }
+                        }}
+                        aria-invalid={Boolean(duplicateProjectError)}
+                        className={`w-full rounded-md px-3 py-2 text-sm outline-none focus:ring-1 ${
+                          duplicateProjectError
+                            ? "border border-rose-400 focus:border-rose-500 focus:ring-rose-500"
+                            : "border border-slate-300 focus:border-blue-500 focus:ring-blue-500"
+                        }`}
                       />
+                      {duplicateProjectError ? (
+                        <p className="mt-1.5 text-sm text-rose-600">
+                          {duplicateProjectError}
+                        </p>
+                      ) : null}
                     </div>
                   </div>
                   <div className="mt-6 flex items-center justify-end gap-2">
                     <button
                       type="button"
-                      onClick={() => setIsDuplicateProjectOpen(false)}
+                      onClick={() => {
+                        setIsDuplicateProjectOpen(false);
+                        setDuplicateProjectError("");
+                      }}
                       className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
                       disabled={duplicateProjectMutation.isPending}
                     >

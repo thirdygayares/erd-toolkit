@@ -4,6 +4,9 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from uuid import uuid4
 
+from psycopg.errors import UniqueViolation
+
+from app.core.errors import ConflictError
 from app.features.project.services import ProjectService
 
 
@@ -83,3 +86,24 @@ def test_duplicate_project_uses_database_contract():
         "project_id": project_id,
         "name": "Copy of ERD",
     }
+
+
+class _UniqueViolationCursor(_FakeCursor):
+    def execute(self, query: str, params: dict | tuple | None = None):
+        self.calls.append((query, params))
+        raise UniqueViolation(
+            'duplicate key value violates unique constraint "project_workspace_name_unq"'
+        )
+
+
+def test_duplicate_project_translates_workspace_name_conflict():
+    cursor = _UniqueViolationCursor()
+    db = _FakeDatabase(cursor)
+    service = ProjectService(db)
+
+    try:
+        service.duplicate_project(str(uuid4()), "Copy of ERD", ctx=_FakeContext())
+    except ConflictError as exc:
+        assert str(exc) == "A project with that name already exists in this workspace."
+    else:
+        raise AssertionError("expected ConflictError for duplicate project name")
