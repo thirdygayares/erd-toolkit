@@ -64,6 +64,7 @@ class DiagramService:
                 for column in raw_columns:
                     normalized = dict(column)
                     normalized.setdefault("example_value", None)
+                    normalized.setdefault("ui_width", None)
                     normalized.setdefault("comment_text", None)
                     columns.append(normalized)
 

@@ -55,6 +55,7 @@ class StubSchemaEditorService:
             "is_primary_key": payload.is_primary_key,
             "is_unique": payload.is_unique,
             "example_value": payload.example_value,
+            "ui_width": payload.ui_width,
             "created_at": datetime.now(timezone.utc),
             "updated_at": datetime.now(timezone.utc),
         }
@@ -72,6 +73,7 @@ class StubSchemaEditorService:
             "is_primary_key": payload.is_primary_key if payload.is_primary_key is not None else True,
             "is_unique": payload.is_unique if payload.is_unique is not None else True,
             "example_value": payload.example_value,
+            "ui_width": payload.ui_width,
             "created_at": datetime.now(timezone.utc),
             "updated_at": datetime.now(timezone.utc),
         }
@@ -89,6 +91,7 @@ class StubSchemaEditorService:
             "is_primary_key": False,
             "is_unique": False,
             "example_value": None,
+            "ui_width": None,
             "created_at": datetime.now(timezone.utc),
             "updated_at": datetime.now(timezone.utc),
         }
@@ -216,6 +219,43 @@ def test_create_relationship(client, app):
 
     assert response.status_code == 201
     assert response.json()["name"] == "fk_user_company"
+
+
+def test_create_column_with_ui_width(client, app):
+    app.dependency_overrides[get_schema_editor_service] = lambda: StubSchemaEditorService()
+
+    response = client.post(
+        f"/api/v1/diagrams/{uuid4()}/tables/{uuid4()}/columns",
+        json={
+            "column_name": "customer_name",
+            "ordinal_position": 1,
+            "data_type": "text",
+            "is_nullable": False,
+            "is_primary_key": False,
+            "is_unique": False,
+            "default_sql": "",
+            "example_value": "Ada",
+            "ui_width": 360,
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["column_name"] == "customer_name"
+    assert response.json()["ui_width"] == 360
+
+
+def test_update_column_with_ui_width(client, app):
+    app.dependency_overrides[get_schema_editor_service] = lambda: StubSchemaEditorService()
+
+    response = client.patch(
+        f"/api/v1/diagrams/{uuid4()}/tables/{uuid4()}/columns/{uuid4()}",
+        json={
+            "ui_width": 420,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["ui_width"] == 420
 
 
 def test_delete_column(client, app):

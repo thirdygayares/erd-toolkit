@@ -209,6 +209,7 @@ export interface ColumnCreateRequest {
   is_primary_key: boolean;
   is_unique: boolean;
   example_value?: string | null;
+  ui_width?: number | null;
   comment_text?: string | null;
 }
 
@@ -222,6 +223,7 @@ export interface ColumnUpdateRequest {
   is_primary_key?: boolean | null;
   is_unique?: boolean | null;
   example_value?: string | null;
+  ui_width?: number | null;
   comment_text?: string | null;
 }
 
@@ -237,6 +239,7 @@ export interface ColumnMutationResponse {
   is_primary_key: boolean;
   is_unique: boolean;
   example_value: string | null;
+  ui_width: number | null;
   comment_text: string | null;
   created_at: string;
   updated_at: string;
@@ -320,6 +323,7 @@ export interface ColumnResponse {
   is_primary_key: boolean;
   is_unique: boolean;
   example_value: string | null;
+  ui_width: number | null;
   comment_text: string | null;
 }
 

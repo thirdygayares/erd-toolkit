@@ -39,6 +39,7 @@ class ColumnResponse(BaseModel):
     is_primary_key: bool
     is_unique: bool
     example_value: str | None = None
+    ui_width: float | None = None
     comment_text: str | None = None
 
 

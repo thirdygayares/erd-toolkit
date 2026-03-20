@@ -40,6 +40,24 @@ FROM api.fn_column_create(
     p_is_primary_key => %(is_primary_key)s::boolean,
     p_is_unique => %(is_unique)s::boolean,
     p_example_value => %(example_value)s::text,
+    p_ui_width => %(ui_width)s::numeric,
+    p_comment_text => %(comment_text)s::text
+);
+"""
+
+INSERT_COLUMN_LEGACY_WITH_EXAMPLE_COMMENT = """
+SELECT *
+FROM api.fn_column_create(
+    p_table_id => %(table_id)s::uuid,
+    p_column_name => %(column_name)s::text,
+    p_ordinal_position => %(ordinal_position)s::integer,
+    p_data_type => %(data_type)s::text,
+    p_udt_name => %(udt_name)s::text,
+    p_is_nullable => %(is_nullable)s::boolean,
+    p_default_sql => %(default_sql)s::text,
+    p_is_primary_key => %(is_primary_key)s::boolean,
+    p_is_unique => %(is_unique)s::boolean,
+    p_example_value => %(example_value)s::text,
     p_comment_text => %(comment_text)s::text
 );
 """
@@ -60,6 +78,25 @@ FROM api.fn_column_create(
 """
 
 UPDATE_COLUMN = """
+SELECT *
+FROM api.fn_column_update(
+    p_table_id => %(table_id)s::uuid,
+    p_column_id => %(column_id)s::uuid,
+    p_column_name => %(column_name)s::text,
+    p_ordinal_position => %(ordinal_position)s::integer,
+    p_data_type => %(data_type)s::text,
+    p_udt_name => %(udt_name)s::text,
+    p_is_nullable => %(is_nullable)s::boolean,
+    p_default_sql => %(default_sql)s::text,
+    p_is_primary_key => %(is_primary_key)s::boolean,
+    p_is_unique => %(is_unique)s::boolean,
+    p_example_value => %(example_value)s::text,
+    p_ui_width => %(ui_width)s::numeric,
+    p_comment_text => %(comment_text)s::text
+);
+"""
+
+UPDATE_COLUMN_LEGACY_WITH_EXAMPLE_COMMENT = """
 SELECT *
 FROM api.fn_column_update(
     p_table_id => %(table_id)s::uuid,
