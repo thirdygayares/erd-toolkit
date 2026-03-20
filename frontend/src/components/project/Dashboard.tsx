@@ -13,7 +13,6 @@ import {
   GripVertical,
   KeyRound,
   Link2,
-  Lock,
   Menu,
   MoreVertical,
   PanelLeftClose,
@@ -26,7 +25,6 @@ import {
   Settings2,
   Table2,
   Trash2,
-  Unlock,
   Upload,
   X,
 } from "lucide-react";
@@ -79,6 +77,12 @@ import type {
 
 import { CreateProjectDialog } from "../projects/CreateProjectDialog";
 import { DiagramCanvas } from "./diagramCanvas/DiagramCanvas";
+import {
+  getAvailableShareAccessOptions,
+  type ShareAccessOption,
+  toShareAccessOption,
+  toVisibilityPayload,
+} from "./shareAccess";
 
 type SidebarMode = "tables" | "relations" | "customTypes" | "importExport";
 type TableDialogMode = "create" | "edit";
@@ -363,6 +367,9 @@ export function Dashboard({
   const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
   const [isDuplicateProjectOpen, setIsDuplicateProjectOpen] = useState(false);
   const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false);
+  const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
+  const [shareAccessOption, setShareAccessOption] =
+    useState<ShareAccessOption>("onlyMe");
   const [duplicateProjectName, setDuplicateProjectName] = useState("");
   const [duplicateProjectError, setDuplicateProjectError] = useState("");
   const [isMounted, setIsMounted] = useState(false);
@@ -751,6 +758,15 @@ export function Dashboard({
         setStoredProjectContext({ shareSlug: null });
       }
     }
+  }, [projectQuery.data]);
+
+  useEffect(() => {
+    if (!projectQuery.data) {
+      return;
+    }
+    setShareAccessOption(
+      toShareAccessOption(projectQuery.data.visibility as "public" | "private"),
+    );
   }, [projectQuery.data]);
 
   const createDiagram = createDiagramMutation.mutateAsync;
@@ -2360,22 +2376,43 @@ export function Dashboard({
     router.push(targetPath);
   }
 
-  async function toggleVisibility() {
+  function openShareDialog() {
+    if (!projectQuery.data) {
+      return;
+    }
+    setShareAccessOption(
+      toShareAccessOption(projectQuery.data.visibility as "public" | "private"),
+    );
+    setIsShareDialogOpen(true);
+  }
+
+  async function setProjectAccess(nextAccess: ShareAccessOption) {
     if (!projectQuery.data) {
       return;
     }
 
-    const nextVisibility =
-      projectQuery.data.visibility === "public" ? "private" : "public";
+    if (!isAuthenticated && nextAccess !== "anyoneWithLink") {
+      setStatusMessage("Log in to change this sharing option.");
+      router.push("/auth/login");
+      return;
+    }
+
+    const visibilityPayload = toVisibilityPayload(nextAccess);
+    if (!visibilityPayload) {
+      setStatusMessage(
+        "Only selected people is not supported by the current backend access model.",
+      );
+      return;
+    }
 
     try {
       const updated = await updateProjectVisibilityMutation.mutateAsync({
         projectId: projectQuery.data.project_id,
-        payload: {
-          visibility: nextVisibility,
-          allow_anonymous_edit: nextVisibility === "public",
-        },
+        payload: visibilityPayload,
       });
+      setShareAccessOption(
+        toShareAccessOption(updated.visibility as "public" | "private"),
+      );
       setStatusMessage(`Project visibility: ${updated.visibility}`);
     } catch (error) {
       const message =
@@ -2393,6 +2430,10 @@ export function Dashboard({
     const shareUrl = `${window.location.origin}/share/${shareSlug}`;
     await navigator.clipboard.writeText(shareUrl);
     setStatusMessage("Share link copied.");
+  }
+
+  function redirectToLoginForSharing() {
+    router.push("/auth/login");
   }
 
   function resetLocalSession() {
@@ -2828,33 +2869,13 @@ export function Dashboard({
             </div>
             <button
               type="button"
-              onClick={toggleVisibility}
-              className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium hover:bg-slate-50"
-            >
-              {projectQuery.data.visibility === "public" ? (
-                <Unlock className="h-4 w-4 text-emerald-600" />
-              ) : (
-                <Lock className="h-4 w-4 text-amber-600" />
-              )}
-              {projectQuery.data.visibility}
-            </button>
-            <button
-              type="button"
-              onClick={copyShareLink}
-              disabled={!shareSlug}
+              onClick={openShareDialog}
               className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium hover:bg-slate-50 disabled:opacity-50"
             >
               <Link2 className="h-4 w-4" />
               Share
             </button>
-            <button
-              type="button"
-              onClick={resetLocalSession}
-              className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium hover:bg-slate-50"
-            >
-              <RefreshCw className="h-4 w-4" />
-              Reset
-            </button>
+
           </div>
         </div>
       </header>
@@ -5564,6 +5585,123 @@ export function Dashboard({
                 className="rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700"
               >
                 Export
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isShareDialogOpen ? (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/30 p-4">
+          <div className="w-full max-w-lg rounded-xl border border-slate-300 bg-white p-4 shadow-xl">
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-semibold">Share settings</h3>
+                <p className="text-xs text-slate-600">
+                  Choose who can access this project.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsShareDialogOpen(false)}
+                className="rounded p-1 text-slate-500 hover:bg-slate-100"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              {getAvailableShareAccessOptions(isAuthenticated).includes(
+                "onlyMe",
+              ) ? (
+                <button
+                  type="button"
+                  onClick={() => void setProjectAccess("onlyMe")}
+                  disabled={updateProjectVisibilityMutation.isPending}
+                  className={`w-full rounded-md border px-3 py-2 text-left transition ${
+                    shareAccessOption === "onlyMe"
+                      ? "border-blue-500 bg-blue-50"
+                      : "border-slate-300 bg-white hover:bg-slate-50"
+                  }`}
+                >
+                  <p className="text-sm font-semibold text-slate-900">
+                    Only me
+                  </p>
+                  <p className="text-xs text-slate-600">
+                    Private access for you and workspace members only.
+                  </p>
+                </button>
+              ) : null}
+
+              <button
+                type="button"
+                onClick={() => void setProjectAccess("anyoneWithLink")}
+                disabled={updateProjectVisibilityMutation.isPending}
+                className={`w-full rounded-md border px-3 py-2 text-left transition ${
+                  shareAccessOption === "anyoneWithLink"
+                    ? "border-blue-500 bg-blue-50"
+                    : "border-slate-300 bg-white hover:bg-slate-50"
+                }`}
+              >
+                <p className="text-sm font-semibold text-slate-900">
+                  Anyone with the link
+                </p>
+                <p className="text-xs text-slate-600">
+                  Anyone with the share link can open this project.
+                </p>
+              </button>
+            </div>
+
+            {!isAuthenticated ? (
+              <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                <p>
+                  Log in to unlock private sharing controls like{" "}
+                  <strong>Only me</strong>.
+                </p>
+                <button
+                  type="button"
+                  onClick={redirectToLoginForSharing}
+                  className="mt-2 inline-flex h-8 items-center rounded-md border border-amber-300 bg-white px-3 text-xs font-semibold text-amber-900 hover:bg-amber-100"
+                >
+                  Log in
+                </button>
+              </div>
+            ) : null}
+
+            <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs font-semibold text-slate-700">Share link</p>
+              <div className="mt-2 flex items-center gap-2">
+                <input
+                  readOnly
+                  value={
+                    typeof window !== "undefined" && shareSlug
+                      ? `${window.location.origin}/share/${shareSlug}`
+                      : ""
+                  }
+                  placeholder="Switch to 'Anyone with the link' to enable sharing."
+                  className="h-9 flex-1 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
+                />
+                <button
+                  type="button"
+                  onClick={() => void copyShareLink()}
+                  disabled={
+                    !shareSlug || shareAccessOption !== "anyoneWithLink"
+                  }
+                  className="inline-flex h-9 items-center gap-1 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  Copy
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setIsShareDialogOpen(false)}
+                className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold hover:bg-slate-50"
+              >
+                Done
               </button>
             </div>
           </div>
