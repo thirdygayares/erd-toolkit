@@ -46,7 +46,11 @@ export function HeroSection({
                     Start Free as Guest
                     <ArrowRight className="h-4 w-4" />
                   </Button>
-                  <Button onClick={onWorkspaceClick} size="lg" variant="outline">
+                  <Button
+                    onClick={onWorkspaceClick}
+                    size="lg"
+                    variant="outline"
+                  >
                     Create Private Workspace
                   </Button>
                 </>

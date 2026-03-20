@@ -64,6 +64,9 @@ class DiagramService:
                 cur.execute(sql.GET_RELATIONSHIPS, {"diagram_id": diagram_id})
                 relationships = cur.fetchall()
 
+                cur.execute(sql.GET_CUSTOM_TYPES, {"diagram_id": diagram_id})
+                custom_types = cur.fetchall()
+
         columns_by_table: dict[str, list[dict]] = defaultdict(list)
         for col in columns:
             columns_by_table[str(col["table_id"])].append(col)
@@ -76,6 +79,7 @@ class DiagramService:
             "diagram": diagram,
             "tables": table_payload,
             "relationships": relationships,
+            "custom_types": custom_types,
         }
 
     def create_snapshot(

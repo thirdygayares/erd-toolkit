@@ -25,7 +25,13 @@ export interface TableNodeData extends Record<string, unknown> {
 export type TableNodeType = Node<TableNodeData, "tableNode">;
 
 function renderTypeLabel(column: ColumnResponse) {
-  return `${column.data_type}${column.is_nullable ? "?" : ""}`;
+  const dataType = column.data_type.trim();
+  const isUserDefined = dataType.replace("[]", "") === "USER-DEFINED";
+  const typeLabel =
+    isUserDefined && column.udt_name
+      ? `${column.udt_name}${dataType.endsWith("[]") ? "[]" : ""}`
+      : dataType;
+  return `${typeLabel}${column.is_nullable ? "?" : ""}`;
 }
 
 function withOpacity(hexColor: string, alphaHex: string) {

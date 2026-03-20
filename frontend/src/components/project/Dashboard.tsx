@@ -46,11 +46,14 @@ import { useDuplicateProjectMutation } from "@/hooks/project/useDuplicateProject
 import { useGetProjectQuery } from "@/hooks/project/useGetProjectQuery";
 import { useUpdateProjectVisibilityMutation } from "@/hooks/project/useUpdateProjectVisibilityMutation";
 import { useCreateColumnMutation } from "@/hooks/schemaEditor/useCreateColumnMutation";
+import { useCreateCustomTypeMutation } from "@/hooks/schemaEditor/useCreateCustomTypeMutation";
 import { useCreateRelationshipMutation } from "@/hooks/schemaEditor/useCreateRelationshipMutation";
 import { useCreateTableMutation } from "@/hooks/schemaEditor/useCreateTableMutation";
 import { useDeleteColumnMutation } from "@/hooks/schemaEditor/useDeleteColumnMutation";
+import { useDeleteCustomTypeMutation } from "@/hooks/schemaEditor/useDeleteCustomTypeMutation";
 import { useDeleteRelationshipMutation } from "@/hooks/schemaEditor/useDeleteRelationshipMutation";
 import { useUpdateColumnMutation } from "@/hooks/schemaEditor/useUpdateColumnMutation";
+import { useUpdateCustomTypeMutation } from "@/hooks/schemaEditor/useUpdateCustomTypeMutation";
 import { useUpdateRelationshipMutation } from "@/hooks/schemaEditor/useUpdateRelationshipMutation";
 import { useUpdateTableMutation } from "@/hooks/schemaEditor/useUpdateTableMutation";
 import { useListWorkspacesQuery } from "@/hooks/workspace/useListWorkspacesQuery";
@@ -61,6 +64,7 @@ import {
 } from "@/lib/authStorage";
 import type {
   ColumnResponse,
+  CustomTypeResponse,
   DiagramDetailResponse,
   PostgresConnectionRequest,
   TableResponse,
@@ -102,6 +106,7 @@ const postgresTypeOptions = [
 const dialogFieldIdPrefix = "dialog-field-";
 const emptyTables: TableResponse[] = [];
 const emptyRelationships: DiagramDetailResponse["relationships"] = [];
+const emptyCustomTypes: CustomTypeResponse[] = [];
 
 interface DashboardProps {
   projectId: string;
@@ -149,6 +154,15 @@ interface FieldAttributesDraft {
   baseType: string;
 }
 
+interface CustomTypeEditorState {
+  open: boolean;
+  mode: "create" | "edit";
+  customTypeId: string | null;
+  schemaName: string;
+  typeName: string;
+  enumValuesText: string;
+}
+
 interface RelationshipComposerState {
   sourceTableId: string;
   sourceColumnId: string;
@@ -185,7 +199,7 @@ function mapColumnToDialogField(column: ColumnResponse): TableDialogFieldDraft {
     localId: `column-${column.column_id}`,
     columnId: column.column_id,
     columnName: column.column_name,
-    dataType: column.data_type,
+    dataType: getColumnTypeName(column),
     isNullable: column.is_nullable,
     isPrimaryKey: column.is_primary_key,
     isUnique: column.is_unique,
@@ -194,6 +208,24 @@ function mapColumnToDialogField(column: ColumnResponse): TableDialogFieldDraft {
 
 function randomColor() {
   return tableColors[0] ?? "#65d5b8";
+}
+
+function getColumnTypeName(
+  column: Pick<ColumnResponse, "data_type" | "udt_name">,
+) {
+  const dataType = column.data_type.trim();
+  const isUserDefined = dataType.replace("[]", "") === "USER-DEFINED";
+  if (isUserDefined && column.udt_name) {
+    return `${column.udt_name}${dataType.endsWith("[]") ? "[]" : ""}`;
+  }
+  return dataType;
+}
+
+function parseCustomTypeValuesInput(value: string) {
+  return value
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function normalizeTypeForComparison(dataType: string) {
@@ -226,6 +258,27 @@ function normalizeTypeForComparison(dataType: string) {
 
 function removeArraySuffix(dataType: string) {
   return dataType.endsWith("[]") ? dataType.slice(0, -2) : dataType;
+}
+
+function buildColumnTypePayload(
+  typeName: string,
+  customTypeNames: Set<string>,
+) {
+  const normalized = typeName.trim() || "text";
+  const isArray = normalized.endsWith("[]");
+  const baseType = removeArraySuffix(normalized).trim();
+
+  if (customTypeNames.has(baseType)) {
+    return {
+      data_type: isArray ? "USER-DEFINED[]" : "USER-DEFINED",
+      udt_name: baseType,
+    };
+  }
+
+  return {
+    data_type: normalized,
+    udt_name: null,
+  };
 }
 
 function inferAutoIncrement(defaultSql: string | null) {
@@ -311,6 +364,15 @@ export function Dashboard({
   const [tableDialogOriginalColumns, setTableDialogOriginalColumns] = useState<
     ColumnResponse[]
   >([]);
+  const [customTypeEditor, setCustomTypeEditor] =
+    useState<CustomTypeEditorState>({
+      open: false,
+      mode: "create",
+      customTypeId: null,
+      schemaName: "public",
+      typeName: "",
+      enumValuesText: "",
+    });
 
   const [fieldAttributesDraft, setFieldAttributesDraft] =
     useState<FieldAttributesDraft | null>(null);
@@ -390,6 +452,9 @@ export function Dashboard({
     [],
   );
   const [importAllSchemas, setImportAllSchemas] = useState(true);
+  const [testedImportConnectionKey, setTestedImportConnectionKey] = useState<
+    string | null
+  >(null);
   const [exportAllSchemas, setExportAllSchemas] = useState(true);
   const [selectedExportSchemas, setSelectedExportSchemas] = useState<string[]>(
     [],
@@ -414,6 +479,9 @@ export function Dashboard({
   const createColumnMutation = useCreateColumnMutation();
   const deleteColumnMutation = useDeleteColumnMutation();
   const updateColumnMutation = useUpdateColumnMutation();
+  const createCustomTypeMutation = useCreateCustomTypeMutation();
+  const updateCustomTypeMutation = useUpdateCustomTypeMutation();
+  const deleteCustomTypeMutation = useDeleteCustomTypeMutation();
   const createRelationshipMutation = useCreateRelationshipMutation();
   const updateRelationshipMutation = useUpdateRelationshipMutation();
   const deleteRelationshipMutation = useDeleteRelationshipMutation();
@@ -427,6 +495,7 @@ export function Dashboard({
 
   const tables = diagramQuery.data?.tables ?? emptyTables;
   const relationships = diagramQuery.data?.relationships ?? emptyRelationships;
+  const customTypes = diagramQuery.data?.custom_types ?? emptyCustomTypes;
   const isDataDictionaryView = initialView === "dictionary";
   const availableExportSchemas = useMemo(() => {
     return [...new Set(tables.map((table) => table.schema_name))].sort(
@@ -471,19 +540,37 @@ export function Dashboard({
   }, [relationships, relationFilter, tables]);
 
   const customTypeOptions = useMemo(() => {
-    const fromColumns = new Set<string>();
+    const fromColumns = new Set<string>(
+      customTypes.map((customType) => customType.type_name),
+    );
     for (const table of tables) {
       for (const column of table.columns) {
-        if (
-          column.data_type &&
-          !postgresTypeOptions.includes(column.data_type)
-        ) {
-          fromColumns.add(column.data_type);
+        const baseType = removeArraySuffix(getColumnTypeName(column));
+        if (baseType && !postgresTypeOptions.includes(baseType)) {
+          fromColumns.add(baseType);
         }
       }
     }
 
     return [...postgresTypeOptions, ...[...fromColumns].sort()];
+  }, [customTypes, tables]);
+
+  const customTypeNameSet = useMemo(
+    () => new Set(customTypes.map((customType) => customType.type_name)),
+    [customTypes],
+  );
+
+  const customTypeUsageCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const table of tables) {
+      for (const column of table.columns) {
+        const baseType = removeArraySuffix(getColumnTypeName(column));
+        if (!postgresTypeOptions.includes(baseType)) {
+          counts[baseType] = (counts[baseType] ?? 0) + 1;
+        }
+      }
+    }
+    return counts;
   }, [tables]);
 
   useEffect(() => {
@@ -501,22 +588,6 @@ export function Dashboard({
       return next;
     });
   }, [availableExportSchemas, exportAllSchemas]);
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reset import test state whenever connection details change.
-  useEffect(() => {
-    setConnectionCheckStatus("idle");
-    setConnectionCheckMessage("");
-    setAvailableImportSchemas([]);
-    setSelectedImportSchemas([]);
-    setImportAllSchemas(true);
-  }, [
-    importHost,
-    importPort,
-    importDatabase,
-    importUser,
-    importPassword,
-    importSslMode,
-  ]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -556,6 +627,9 @@ export function Dashboard({
     createColumnMutation.isPending ||
     deleteColumnMutation.isPending ||
     updateColumnMutation.isPending ||
+    createCustomTypeMutation.isPending ||
+    updateCustomTypeMutation.isPending ||
+    deleteCustomTypeMutation.isPending ||
     createRelationshipMutation.isPending ||
     updateRelationshipMutation.isPending ||
     deleteRelationshipMutation.isPending ||
@@ -565,6 +639,32 @@ export function Dashboard({
     exportSqlMutation.isPending ||
     createSnapshotMutation.isPending ||
     updateProjectVisibilityMutation.isPending;
+
+  const importConnectionKey = [
+    importHost.trim(),
+    String(importPort),
+    importDatabase.trim(),
+    importUser.trim(),
+    importPassword,
+    importSslMode.trim(),
+  ].join("|");
+  const isCurrentImportConnection =
+    testedImportConnectionKey === importConnectionKey;
+  const visibleConnectionCheckStatus = isCurrentImportConnection
+    ? connectionCheckStatus
+    : "idle";
+  const visibleConnectionCheckMessage = isCurrentImportConnection
+    ? connectionCheckMessage
+    : "";
+  const visibleImportSchemas = isCurrentImportConnection
+    ? availableImportSchemas
+    : [];
+  const visibleSelectedImportSchemas = isCurrentImportConnection
+    ? selectedImportSchemas
+    : [];
+  const visibleImportAllSchemas = isCurrentImportConnection
+    ? importAllSchemas
+    : true;
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -890,15 +990,118 @@ export function Dashboard({
       const message =
         error instanceof Error ? error.message : "Unable to rename table.";
       setStatusMessage(message);
-    } finally {
-      cancelSidebarTableRename();
     }
+    cancelSidebarTableRename();
   }
 
   function closeTableDialog() {
     setTableDialog((current) => ({ ...current, open: false }));
     setTableDialogOriginalColumns([]);
     setTableDialogFields([]);
+  }
+
+  function closeCustomTypeEditor() {
+    setCustomTypeEditor({
+      open: false,
+      mode: "create",
+      customTypeId: null,
+      schemaName: "public",
+      typeName: "",
+      enumValuesText: "",
+    });
+  }
+
+  function openCreateCustomTypeEditor() {
+    setCustomTypeEditor({
+      open: true,
+      mode: "create",
+      customTypeId: null,
+      schemaName: "public",
+      typeName: "",
+      enumValuesText: "",
+    });
+  }
+
+  function openEditCustomTypeEditor(customType: CustomTypeResponse) {
+    setCustomTypeEditor({
+      open: true,
+      mode: "edit",
+      customTypeId: customType.custom_type_id,
+      schemaName: customType.schema_name,
+      typeName: customType.type_name,
+      enumValuesText: customType.enum_values.join("\n"),
+    });
+  }
+
+  async function saveCustomType() {
+    if (!diagramId) {
+      return;
+    }
+
+    const typeName = customTypeEditor.typeName.trim();
+    const enumValues = parseCustomTypeValuesInput(
+      customTypeEditor.enumValuesText,
+    );
+    if (!typeName) {
+      setStatusMessage("Enum name is required.");
+      return;
+    }
+    if (enumValues.length === 0) {
+      setStatusMessage("Add at least one enum value.");
+      return;
+    }
+
+    try {
+      if (customTypeEditor.mode === "create") {
+        const created = await createCustomTypeMutation.mutateAsync({
+          diagramId,
+          payload: {
+            schema_name: customTypeEditor.schemaName.trim() || "public",
+            type_name: typeName,
+            enum_values: enumValues,
+          },
+        });
+        setStatusMessage(`Enum created: ${created.type_name}`);
+      } else if (customTypeEditor.customTypeId) {
+        const updated = await updateCustomTypeMutation.mutateAsync({
+          diagramId,
+          customTypeId: customTypeEditor.customTypeId,
+          payload: {
+            schema_name: customTypeEditor.schemaName.trim() || "public",
+            type_name: typeName,
+            enum_values: enumValues,
+          },
+        });
+        setStatusMessage(`Enum updated: ${updated.type_name}`);
+      }
+
+      closeCustomTypeEditor();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to save enum.";
+      setStatusMessage(message);
+    }
+  }
+
+  async function deleteCustomType(customType: CustomTypeResponse) {
+    if (!diagramId) {
+      return;
+    }
+
+    try {
+      await deleteCustomTypeMutation.mutateAsync({
+        diagramId,
+        customTypeId: customType.custom_type_id,
+      });
+      if (customTypeEditor.customTypeId === customType.custom_type_id) {
+        closeCustomTypeEditor();
+      }
+      setStatusMessage(`Enum deleted: ${customType.type_name}`);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to delete enum.";
+      setStatusMessage(message);
+    }
   }
 
   function updateTableDialogField(
@@ -1040,7 +1243,7 @@ export function Dashboard({
         payload: {
           column_name: field.columnName,
           ordinal_position: field.ordinalPosition,
-          data_type: field.dataType,
+          ...buildColumnTypePayload(field.dataType, customTypeNameSet),
           is_nullable: field.isNullable,
           is_primary_key: field.isPrimaryKey,
           is_unique: field.isUnique,
@@ -1067,8 +1270,11 @@ export function Dashboard({
       if (existingColumn.column_name !== field.columnName) {
         patch.column_name = field.columnName;
       }
-      if (existingColumn.data_type !== field.dataType) {
-        patch.data_type = field.dataType;
+      if (getColumnTypeName(existingColumn) !== field.dataType) {
+        Object.assign(
+          patch,
+          buildColumnTypePayload(field.dataType, customTypeNameSet),
+        );
       }
       if (existingColumn.is_nullable !== field.isNullable) {
         patch.is_nullable = field.isNullable;
@@ -1311,7 +1517,7 @@ export function Dashboard({
         payload: {
           column_name: columnName,
           ordinal_position: nextOrdinal,
-          data_type: draft.dataType,
+          ...buildColumnTypePayload(draft.dataType, customTypeNameSet),
           is_nullable: draft.isNullable,
           is_primary_key: false,
           is_unique: false,
@@ -1383,7 +1589,7 @@ export function Dashboard({
   }
 
   function openFieldAttributes(table: TableResponse, column: ColumnResponse) {
-    const baseType = removeArraySuffix(column.data_type);
+    const baseType = removeArraySuffix(getColumnTypeName(column));
 
     setFieldAttributesDraft({
       tableId: table.table_id,
@@ -1391,7 +1597,7 @@ export function Dashboard({
       primaryKey: column.is_primary_key,
       unique: column.is_unique,
       autoIncrement: inferAutoIncrement(column.default_sql),
-      array: column.data_type.endsWith("[]"),
+      array: getColumnTypeName(column).endsWith("[]"),
       isNullable: column.is_nullable,
       defaultValue: column.default_sql ?? "",
       example: column.example_value ?? "",
@@ -1405,16 +1611,24 @@ export function Dashboard({
       return;
     }
 
-    const dataType = fieldAttributesDraft.array
+    const dataTypeName = fieldAttributesDraft.array
       ? `${removeArraySuffix(fieldAttributesDraft.baseType)}[]`
       : removeArraySuffix(fieldAttributesDraft.baseType);
+    const currentColumn = findColumn(
+      tables,
+      fieldAttributesDraft.tableId,
+      fieldAttributesDraft.columnId,
+    );
+    const currentTypeName = currentColumn
+      ? getColumnTypeName(currentColumn)
+      : null;
 
     if (fieldAttributesDraft.autoIncrement) {
       if (fieldAttributesDraft.array) {
         setStatusMessage("Auto-increment is not allowed on array columns.");
         return;
       }
-      if (!isIdentityCompatibleType(dataType)) {
+      if (!isIdentityCompatibleType(dataTypeName)) {
         setStatusMessage(
           "Auto-increment is only allowed for int or bigint columns.",
         );
@@ -1433,18 +1647,27 @@ export function Dashboard({
       : fieldAttributesDraft.autoIncrement
         ? false
         : fieldAttributesDraft.isNullable;
+    const patch: Parameters<
+      typeof updateColumnMutation.mutateAsync
+    >[0]["payload"] = {
+      is_primary_key: nextIsPrimaryKey,
+      is_unique: nextIsUnique,
+      is_nullable: nextIsNullable,
+      default_sql: nextDefault,
+      example_value: nextExample,
+    };
+
+    if (currentTypeName !== dataTypeName) {
+      Object.assign(
+        patch,
+        buildColumnTypePayload(dataTypeName, customTypeNameSet),
+      );
+    }
 
     await updateColumn(
       fieldAttributesDraft.tableId,
       fieldAttributesDraft.columnId,
-      {
-        data_type: dataType,
-        is_primary_key: nextIsPrimaryKey,
-        is_unique: nextIsUnique,
-        is_nullable: nextIsNullable,
-        default_sql: nextDefault,
-        example_value: nextExample,
-      },
+      patch,
       {
         successMessage: "Field attributes updated.",
       },
@@ -1712,12 +1935,14 @@ export function Dashboard({
       return;
     }
 
-    const sourceType = normalizeTypeForComparison(sourceColumn.data_type);
-    const targetType = normalizeTypeForComparison(targetColumn.data_type);
+    const sourceTypeLabel = getColumnTypeName(sourceColumn);
+    const targetTypeLabel = getColumnTypeName(targetColumn);
+    const sourceType = normalizeTypeForComparison(sourceTypeLabel);
+    const targetType = normalizeTypeForComparison(targetTypeLabel);
 
     if (sourceType !== targetType) {
       setStatusMessage(
-        `Type mismatch: ${sourceColumn.column_name} (${sourceColumn.data_type}) cannot connect to ${targetColumn.column_name} (${targetColumn.data_type}).`,
+        `Type mismatch: ${sourceColumn.column_name} (${sourceTypeLabel}) cannot connect to ${targetColumn.column_name} (${targetTypeLabel}).`,
       );
       return;
     }
@@ -1978,6 +2203,7 @@ export function Dashboard({
     setAvailableImportSchemas(result.schemas);
     setImportAllSchemas(true);
     setSelectedImportSchemas(result.schemas);
+    setTestedImportConnectionKey(importConnectionKey);
     if (result.schemas.length === 0) {
       setStatusMessage(
         "Connection succeeded, but no importable schemas found.",
@@ -1996,6 +2222,7 @@ export function Dashboard({
         diagramId,
         payload: buildConnectionPayload(),
       });
+      setTestedImportConnectionKey(importConnectionKey);
       setConnectionCheckStatus("success");
       setConnectionCheckMessage(
         `Connected as ${result.current_user} on ${result.database_name}`,
@@ -2009,6 +2236,7 @@ export function Dashboard({
         error,
         "Unable to connect to PostgreSQL source.",
       );
+      setTestedImportConnectionKey(importConnectionKey);
       setConnectionCheckStatus("failed");
       setConnectionCheckMessage(message);
       setStatusMessage(message);
@@ -2044,14 +2272,14 @@ export function Dashboard({
       return;
     }
 
-    if (connectionCheckStatus !== "success") {
+    if (visibleConnectionCheckStatus !== "success") {
       setStatusMessage("Test connection first before importing.");
       return;
     }
 
-    const selectedSchemas = importAllSchemas
-      ? availableImportSchemas
-      : selectedImportSchemas;
+    const selectedSchemas = visibleImportAllSchemas
+      ? visibleImportSchemas
+      : visibleSelectedImportSchemas;
     if (selectedSchemas.length === 0) {
       setStatusMessage("Select at least one schema to import.");
       return;
@@ -2064,7 +2292,7 @@ export function Dashboard({
           ...buildConnectionPayload(),
           schema_names: selectedSchemas,
           schema_name: selectedSchemas[0] ?? null,
-          import_all_schemas: importAllSchemas,
+          import_all_schemas: visibleImportAllSchemas,
         },
       });
 
@@ -2488,18 +2716,171 @@ export function Dashboard({
           <section className="rounded-lg border border-slate-200 bg-white p-1.5">
             {sidebarMode === "customTypes" ? (
               <div className="space-y-2">
-                <h3 className="text-xs font-semibold tracking-wide text-slate-700 uppercase">
-                  Custom Types
-                </h3>
-                <div className="max-h-[70vh] space-y-1 overflow-auto pr-1">
-                  {customTypeOptions.map((typeName) => (
-                    <div
-                      key={typeName}
-                      className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm text-slate-700"
-                    >
-                      {typeName}
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-xs font-semibold tracking-wide text-slate-700 uppercase">
+                    Custom Types
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={openCreateCustomTypeEditor}
+                    className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Add Enum
+                  </button>
+                </div>
+
+                {customTypeEditor.open ? (
+                  <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-semibold text-slate-700">
+                        {customTypeEditor.mode === "create"
+                          ? "New Enum"
+                          : "Edit Enum"}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={closeCustomTypeEditor}
+                        className="rounded p-1 text-slate-500 hover:bg-slate-200"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
                     </div>
-                  ))}
+
+                    <div>
+                      <p className="mb-1 text-[11px] font-semibold text-slate-600">
+                        Schema
+                      </p>
+                      <input
+                        value={customTypeEditor.schemaName}
+                        onChange={(event) =>
+                          setCustomTypeEditor((current) => ({
+                            ...current,
+                            schemaName: event.target.value,
+                          }))
+                        }
+                        className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs outline-none focus:border-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <p className="mb-1 text-[11px] font-semibold text-slate-600">
+                        Enum Name
+                      </p>
+                      <input
+                        value={customTypeEditor.typeName}
+                        onChange={(event) =>
+                          setCustomTypeEditor((current) => ({
+                            ...current,
+                            typeName: event.target.value,
+                          }))
+                        }
+                        placeholder="order_status"
+                        className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs outline-none focus:border-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <p className="mb-1 text-[11px] font-semibold text-slate-600">
+                        Values
+                      </p>
+                      <textarea
+                        value={customTypeEditor.enumValuesText}
+                        onChange={(event) =>
+                          setCustomTypeEditor((current) => ({
+                            ...current,
+                            enumValuesText: event.target.value,
+                          }))
+                        }
+                        placeholder={"draft\npaid\nshipped"}
+                        className="h-24 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs outline-none focus:border-blue-500"
+                      />
+                      <p className="mt-1 text-[10px] text-slate-500">
+                        One enum value per line.
+                      </p>
+                    </div>
+
+                    <div className="flex justify-end gap-1.5">
+                      <button
+                        type="button"
+                        onClick={closeCustomTypeEditor}
+                        className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void saveCustomType()}
+                        className="rounded-md bg-slate-900 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-slate-700"
+                      >
+                        {customTypeEditor.mode === "create" ? "Create" : "Save"}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="max-h-[62vh] space-y-2 overflow-auto pr-1">
+                  {customTypes.length === 0 ? (
+                    <div className="rounded-md border border-dashed border-slate-300 px-3 py-3 text-xs text-slate-500">
+                      No managed enums yet.
+                    </div>
+                  ) : (
+                    customTypes.map((customType) => (
+                      <div
+                        key={customType.custom_type_id}
+                        className="rounded-lg border border-slate-200 bg-white p-2"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-slate-800">
+                              {customType.type_name}
+                            </p>
+                            <p className="text-[10px] text-slate-500">
+                              {customType.schema_name} •{" "}
+                              {customTypeUsageCounts[customType.type_name] ?? 0}{" "}
+                              field
+                              {(customTypeUsageCounts[customType.type_name] ??
+                                0) === 1
+                                ? ""
+                                : "s"}
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                openEditCustomTypeEditor(customType)
+                              }
+                              className="rounded p-1 text-slate-500 hover:bg-slate-100"
+                              title="Edit enum"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void deleteCustomType(customType)}
+                              className="rounded p-1 text-red-600 hover:bg-red-50"
+                              title="Delete enum"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {customType.enum_values.map((value) => (
+                            <span
+                              key={`${customType.custom_type_id}-${value}`}
+                              className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-700"
+                            >
+                              {value}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             ) : sidebarMode === "importExport" ? (
@@ -2753,20 +3134,20 @@ export function Dashboard({
                                             />
 
                                             <select
-                                              value={column.data_type}
+                                              value={getColumnTypeName(column)}
                                               onChange={(event) => {
                                                 void updateColumn(
                                                   table.table_id,
                                                   column.column_id,
-                                                  {
-                                                    data_type:
-                                                      event.target.value,
-                                                  },
+                                                  buildColumnTypePayload(
+                                                    event.target.value,
+                                                    customTypeNameSet,
+                                                  ),
                                                 );
                                               }}
                                               className="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-xs outline-none focus:border-blue-500"
                                             >
-                                              {postgresTypeOptions.map(
+                                              {customTypeOptions.map(
                                                 (option) => (
                                                   <option
                                                     key={option}
@@ -2867,7 +3248,7 @@ export function Dashboard({
                                         }
                                         className="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-xs outline-none focus:border-blue-500"
                                       >
-                                        {postgresTypeOptions.map((option) => (
+                                        {customTypeOptions.map((option) => (
                                           <option key={option} value={option}>
                                             {option}
                                           </option>
@@ -3445,7 +3826,7 @@ export function Dashboard({
                                       {isActiveRow ? (
                                         <div className="relative">
                                           <select
-                                            value={column.data_type}
+                                            value={getColumnTypeName(column)}
                                             onFocus={() =>
                                               setActiveFieldRow({
                                                 tableId: table.table_id,
@@ -3456,25 +3837,24 @@ export function Dashboard({
                                               void updateColumn(
                                                 table.table_id,
                                                 column.column_id,
-                                                {
-                                                  data_type: event.target.value,
-                                                },
+                                                buildColumnTypePayload(
+                                                  event.target.value,
+                                                  customTypeNameSet,
+                                                ),
                                               );
                                             }}
                                             className={`${getDictionaryInputClass(
                                               true,
                                             )} appearance-none pr-5 text-[11px]`}
                                           >
-                                            {postgresTypeOptions.map(
-                                              (option) => (
-                                                <option
-                                                  key={option}
-                                                  value={option}
-                                                >
-                                                  {option}
-                                                </option>
-                                              ),
-                                            )}
+                                            {customTypeOptions.map((option) => (
+                                              <option
+                                                key={option}
+                                                value={option}
+                                              >
+                                                {option}
+                                              </option>
+                                            ))}
                                           </select>
                                           <ChevronDown className="pointer-events-none absolute top-1.5 right-1 h-3.5 w-3.5 text-slate-500" />
                                         </div>
@@ -3489,7 +3869,7 @@ export function Dashboard({
                                           }
                                           className="w-full px-2 py-1 text-left text-[11px] text-slate-700"
                                         >
-                                          {column.data_type}
+                                          {getColumnTypeName(column)}
                                         </button>
                                       )}
                                     </td>
@@ -3782,7 +4162,7 @@ export function Dashboard({
                                           isNewRowActive,
                                         )} appearance-none pr-5 text-[11px]`}
                                       >
-                                        {postgresTypeOptions.map((option) => (
+                                        {customTypeOptions.map((option) => (
                                           <option key={option} value={option}>
                                             {option}
                                           </option>
@@ -4497,10 +4877,10 @@ export function Dashboard({
               <div className="rounded-md border border-slate-200 bg-slate-50 p-2 text-xs text-slate-700">
                 <p className="font-semibold">Connection status</p>
                 <p>
-                  {connectionCheckStatus === "success"
-                    ? connectionCheckMessage || "Connection successful."
-                    : connectionCheckStatus === "failed"
-                      ? connectionCheckMessage || "Connection failed."
+                  {visibleConnectionCheckStatus === "success"
+                    ? visibleConnectionCheckMessage || "Connection successful."
+                    : visibleConnectionCheckStatus === "failed"
+                      ? visibleConnectionCheckMessage || "Connection failed."
                       : "Run test connection first."}
                 </p>
               </div>
@@ -4513,12 +4893,12 @@ export function Dashboard({
                   <label className="inline-flex items-center gap-1 text-xs text-slate-600">
                     <input
                       type="checkbox"
-                      checked={importAllSchemas}
+                      checked={visibleImportAllSchemas}
                       onChange={(event) => {
                         const checked = event.target.checked;
                         setImportAllSchemas(checked);
                         if (checked) {
-                          setSelectedImportSchemas(availableImportSchemas);
+                          setSelectedImportSchemas(visibleImportSchemas);
                         }
                       }}
                     />
@@ -4526,12 +4906,12 @@ export function Dashboard({
                   </label>
                 </div>
                 <div className="max-h-36 space-y-1 overflow-y-auto pr-1">
-                  {availableImportSchemas.length === 0 ? (
+                  {visibleImportSchemas.length === 0 ? (
                     <p className="text-xs text-slate-500">
                       No schemas loaded yet. Test connection first.
                     </p>
                   ) : (
-                    availableImportSchemas.map((schema) => (
+                    visibleImportSchemas.map((schema) => (
                       <label
                         key={schema}
                         className="flex items-center gap-2 rounded px-2 py-1 text-sm hover:bg-slate-50"
@@ -4539,10 +4919,10 @@ export function Dashboard({
                         <input
                           type="checkbox"
                           checked={
-                            importAllSchemas ||
-                            selectedImportSchemas.includes(schema)
+                            visibleImportAllSchemas ||
+                            visibleSelectedImportSchemas.includes(schema)
                           }
-                          disabled={importAllSchemas}
+                          disabled={visibleImportAllSchemas}
                           onChange={() => toggleImportSchemaSelection(schema)}
                         />
                         <span>{schema}</span>

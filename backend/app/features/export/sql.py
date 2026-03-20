@@ -40,3 +40,10 @@ FROM api.fn_export_get_relationships(
     p_diagram_id => %(diagram_id)s::uuid
 );
 """
+
+GET_CUSTOM_TYPES = """
+SELECT *
+FROM api.fn_diagram_get_custom_types(
+    p_diagram_id => %(diagram_id)s::uuid
+);
+"""

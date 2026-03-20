@@ -2,7 +2,7 @@
 
 import { AlertCircle, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { createPortal } from "react-dom";
 
 import { Button } from "@/components/ui/button";
@@ -32,19 +32,14 @@ export function CreateProjectDialog({
     workspaceId || "",
   );
   const [visibility, setVisibility] = useState<"public" | "private">("public");
-  const [mounted, setMounted] = useState(false);
 
   const createProjectMutation = useCreateProjectMutation();
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   if (!open) {
     return null;
   }
 
-  if (!mounted) {
+  if (typeof document === "undefined") {
     return null;
   }
 

@@ -41,6 +41,17 @@ class ColumnResponse(BaseModel):
     example_value: str | None = None
 
 
+class CustomTypeResponse(BaseModel):
+    custom_type_id: UUID
+    diagram_id: UUID
+    schema_name: str
+    type_name: str
+    kind: str
+    enum_values: list[str]
+    created_at: datetime
+    updated_at: datetime
+
+
 class TableResponse(BaseModel):
     table_id: UUID
     diagram_id: UUID
@@ -73,6 +84,7 @@ class DiagramDetailResponse(BaseModel):
     diagram: DiagramSummary
     tables: list[TableResponse]
     relationships: list[RelationshipResponse]
+    custom_types: list[CustomTypeResponse]
 
 
 class SnapshotCreateRequest(BaseModel):

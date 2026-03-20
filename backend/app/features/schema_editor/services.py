@@ -9,6 +9,8 @@ from app.features.schema_editor import sql
 from app.features.schema_editor.schemas import (
     ColumnCreateRequest,
     ColumnUpdateRequest,
+    CustomTypeCreateRequest,
+    CustomTypeUpdateRequest,
     RelationshipCreateRequest,
     RelationshipUpdateRequest,
     TableCreateRequest,
@@ -161,6 +163,75 @@ class SchemaEditorService:
                 row = self._normalize_column_row(cur.fetchone())
                 if not row:
                     raise NotFoundError("column not found")
+                return row
+
+    def create_custom_type(
+        self,
+        diagram_id: str,
+        payload: CustomTypeCreateRequest,
+        ctx: RequestContext,
+    ) -> dict:
+        with self.db.connection() as conn:
+            self.db.apply_request_context(conn, ctx)
+            with conn.cursor() as cur:
+                cur.execute(
+                    sql.INSERT_CUSTOM_TYPE,
+                    {
+                        "diagram_id": diagram_id,
+                        "schema_name": payload.schema_name,
+                        "type_name": payload.type_name,
+                        "enum_values": payload.enum_values,
+                    },
+                )
+                row = cur.fetchone()
+                if not row:
+                    raise NotFoundError("unable to create custom type")
+                return row
+
+    def update_custom_type(
+        self,
+        diagram_id: str,
+        custom_type_id: str,
+        payload: CustomTypeUpdateRequest,
+        ctx: RequestContext,
+    ) -> dict:
+        with self.db.connection() as conn:
+            self.db.apply_request_context(conn, ctx)
+            with conn.cursor() as cur:
+                cur.execute(
+                    sql.UPDATE_CUSTOM_TYPE,
+                    {
+                        "diagram_id": diagram_id,
+                        "custom_type_id": custom_type_id,
+                        "schema_name": payload.schema_name,
+                        "type_name": payload.type_name,
+                        "enum_values": payload.enum_values,
+                    },
+                )
+                row = cur.fetchone()
+                if not row:
+                    raise NotFoundError("custom type not found")
+                return row
+
+    def delete_custom_type(
+        self,
+        diagram_id: str,
+        custom_type_id: str,
+        ctx: RequestContext,
+    ) -> dict:
+        with self.db.connection() as conn:
+            self.db.apply_request_context(conn, ctx)
+            with conn.cursor() as cur:
+                cur.execute(
+                    sql.DELETE_CUSTOM_TYPE,
+                    {
+                        "diagram_id": diagram_id,
+                        "custom_type_id": custom_type_id,
+                    },
+                )
+                row = cur.fetchone()
+                if not row:
+                    raise NotFoundError("custom type not found")
                 return row
 
     def create_relationship(

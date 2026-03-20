@@ -13,6 +13,7 @@ class StubDiagramService:
         self.diagram_id = uuid4()
         self.workspace_id = uuid4()
         self.project_id = uuid4()
+        self.custom_type_id = uuid4()
 
     def create_diagram(self, payload, ctx):
         return {
@@ -93,6 +94,18 @@ class StubDiagramService:
                 }
             ],
             "relationships": [],
+            "custom_types": [
+                {
+                    "custom_type_id": self.custom_type_id,
+                    "diagram_id": diagram_id,
+                    "schema_name": "public",
+                    "type_name": "order_status",
+                    "kind": "enum",
+                    "enum_values": ["draft", "paid", "shipped"],
+                    "created_at": datetime.now(timezone.utc),
+                    "updated_at": datetime.now(timezone.utc),
+                }
+            ],
         }
 
     def create_snapshot(self, diagram_id, payload, ctx):
@@ -131,6 +144,7 @@ def test_get_diagram_detail(client, app):
 
     assert response.status_code == 200
     assert len(response.json()["tables"]) == 1
+    assert response.json()["custom_types"][0]["type_name"] == "order_status"
 
 
 def test_create_snapshot(client, app):

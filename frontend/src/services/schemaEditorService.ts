@@ -3,6 +3,9 @@ import type {
   ColumnCreateRequest,
   ColumnMutationResponse,
   ColumnUpdateRequest,
+  CustomTypeCreateRequest,
+  CustomTypeResponse,
+  CustomTypeUpdateRequest,
   RelationshipCreateRequest,
   RelationshipMutationResponse,
   RelationshipUpdateRequest,
@@ -67,6 +70,39 @@ export class SchemaEditorService {
   ): Promise<ColumnMutationResponse> {
     const { data } = await axiosInstance.delete<ColumnMutationResponse>(
       `/diagrams/${diagramId}/tables/${tableId}/columns/${columnId}`,
+    );
+    return data;
+  }
+
+  async createCustomType(
+    diagramId: string,
+    payload: CustomTypeCreateRequest,
+  ): Promise<CustomTypeResponse> {
+    const { data } = await axiosInstance.post<CustomTypeResponse>(
+      `/diagrams/${diagramId}/custom-types`,
+      payload,
+    );
+    return data;
+  }
+
+  async updateCustomType(
+    diagramId: string,
+    customTypeId: string,
+    payload: CustomTypeUpdateRequest,
+  ): Promise<CustomTypeResponse> {
+    const { data } = await axiosInstance.patch<CustomTypeResponse>(
+      `/diagrams/${diagramId}/custom-types/${customTypeId}`,
+      payload,
+    );
+    return data;
+  }
+
+  async deleteCustomType(
+    diagramId: string,
+    customTypeId: string,
+  ): Promise<CustomTypeResponse> {
+    const { data } = await axiosInstance.delete<CustomTypeResponse>(
+      `/diagrams/${diagramId}/custom-types/${customTypeId}`,
     );
     return data;
   }

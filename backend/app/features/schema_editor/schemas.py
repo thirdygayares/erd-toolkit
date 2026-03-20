@@ -3,7 +3,25 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+def _normalize_required_text(value: str) -> str:
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError("value must not be blank")
+    return normalized
+
+
+def _normalize_enum_values(values: list[str]) -> list[str]:
+    normalized = [value.strip() for value in values]
+    if not normalized:
+        raise ValueError("enum_values must not be empty")
+    if any(not value for value in normalized):
+        raise ValueError("enum_values must not contain blanks")
+    if len(set(normalized)) != len(normalized):
+        raise ValueError("enum_values must be unique")
+    return normalized
 
 
 class TableCreateRequest(BaseModel):
@@ -73,6 +91,53 @@ class ColumnMutationResponse(BaseModel):
     is_primary_key: bool
     is_unique: bool
     example_value: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class CustomTypeCreateRequest(BaseModel):
+    schema_name: str = Field(default="public", min_length=1, max_length=63)
+    type_name: str = Field(min_length=1, max_length=63)
+    enum_values: list[str] = Field(min_length=1)
+
+    @field_validator("schema_name", "type_name")
+    @classmethod
+    def _validate_required_text(cls, value: str) -> str:
+        return _normalize_required_text(value)
+
+    @field_validator("enum_values")
+    @classmethod
+    def _validate_enum_values(cls, value: list[str]) -> list[str]:
+        return _normalize_enum_values(value)
+
+
+class CustomTypeUpdateRequest(BaseModel):
+    schema_name: str | None = Field(default=None, min_length=1, max_length=63)
+    type_name: str | None = Field(default=None, min_length=1, max_length=63)
+    enum_values: list[str] | None = None
+
+    @field_validator("schema_name", "type_name")
+    @classmethod
+    def _validate_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        return _normalize_required_text(value)
+
+    @field_validator("enum_values")
+    @classmethod
+    def _validate_optional_enum_values(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return value
+        return _normalize_enum_values(value)
+
+
+class CustomTypeResponse(BaseModel):
+    custom_type_id: UUID
+    diagram_id: UUID
+    schema_name: str
+    type_name: str
+    kind: str
+    enum_values: list[str]
     created_at: datetime
     updated_at: datetime
 
