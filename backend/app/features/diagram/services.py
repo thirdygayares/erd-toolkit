@@ -51,7 +51,12 @@ class DiagramService:
                     raise NotFoundError("diagram not found")
 
                 cur.execute(sql.GET_TABLES, {"diagram_id": diagram_id})
-                tables = cur.fetchall()
+                raw_tables = cur.fetchall()
+                tables: list[dict] = []
+                for table in raw_tables:
+                    normalized_table = dict(table)
+                    normalized_table.setdefault("comment_text", None)
+                    tables.append(normalized_table)
 
                 cur.execute(sql.GET_COLUMNS_BY_DIAGRAM, {"diagram_id": diagram_id})
                 raw_columns = cur.fetchall()
@@ -59,6 +64,7 @@ class DiagramService:
                 for column in raw_columns:
                     normalized = dict(column)
                     normalized.setdefault("example_value", None)
+                    normalized.setdefault("comment_text", None)
                     columns.append(normalized)
 
                 cur.execute(sql.GET_RELATIONSHIPS, {"diagram_id": diagram_id})

@@ -39,6 +39,7 @@ class ColumnResponse(BaseModel):
     is_primary_key: bool
     is_unique: bool
     example_value: str | None = None
+    comment_text: str | None = None
 
 
 class CustomTypeResponse(BaseModel):
@@ -58,6 +59,7 @@ class TableResponse(BaseModel):
     schema_name: str
     table_name: str
     display_name: str | None
+    comment_text: str | None = None
     pos_x: float
     pos_y: float
     width: float | None

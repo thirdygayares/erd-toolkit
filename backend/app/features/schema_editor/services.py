@@ -41,6 +41,7 @@ class SchemaEditorService:
                         "schema_name": payload.schema_name,
                         "table_name": payload.table_name,
                         "display_name": payload.display_name,
+                        "comment_text": payload.comment_text,
                         "pos_x": payload.pos_x,
                         "pos_y": payload.pos_y,
                         "color_hex": payload.color_hex,
@@ -66,7 +67,10 @@ class SchemaEditorService:
                     {
                         "diagram_id": diagram_id,
                         "table_id": table_id,
+                        "schema_name": payload.schema_name,
+                        "table_name": payload.table_name,
                         "display_name": payload.display_name,
+                        "comment_text": payload.comment_text,
                         "pos_x": payload.pos_x,
                         "pos_y": payload.pos_y,
                         "color_hex": payload.color_hex,
@@ -98,6 +102,7 @@ class SchemaEditorService:
                     "is_primary_key": payload.is_primary_key,
                     "is_unique": payload.is_unique,
                     "example_value": payload.example_value,
+                    "comment_text": payload.comment_text,
                 }
                 try:
                     cur.execute(sql.INSERT_COLUMN, params)
@@ -132,6 +137,7 @@ class SchemaEditorService:
                     "is_primary_key": payload.is_primary_key,
                     "is_unique": payload.is_unique,
                     "example_value": payload.example_value,
+                    "comment_text": payload.comment_text,
                 }
                 try:
                     cur.execute(sql.UPDATE_COLUMN, params)
