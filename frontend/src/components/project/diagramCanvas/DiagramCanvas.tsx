@@ -6,14 +6,13 @@ import {
   Controls,
   type Edge,
   MiniMap,
-  type Node,
   type NodeMouseHandler,
   type OnConnect,
   ReactFlow,
   type ReactFlowInstance,
 } from "@xyflow/react";
 import { Link2, Pencil, Plus, Trash2 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 import type { DiagramDetailResponse } from "@/lib/types";
 
@@ -34,13 +33,24 @@ interface DiagramCanvasProps {
   onDuplicateTable: (tableId: string) => void;
   onDeleteTable: (tableId: string) => void;
   onAddRelationshipFromTable: (tableId: string) => void;
+  dataTypeOptions: string[];
+  onInlineRenameTable: (tableId: string, nextDisplayName: string) => void;
+  onInlineRenameColumn: (
+    tableId: string,
+    columnId: string,
+    nextColumnName: string,
+  ) => void;
+  onInlineChangeColumnType: (
+    tableId: string,
+    columnId: string,
+    nextTypeName: string,
+  ) => void;
   onManualConnect: (connection: {
     fromTableId: string;
     fromColumnId: string;
     toTableId: string;
     toColumnId: string;
   }) => void;
-  onPairTableRequest: (sourceTableId: string, targetTableId: string) => void;
 }
 
 const nodeTypes = {
@@ -88,8 +98,11 @@ export function DiagramCanvas({
   onDuplicateTable,
   onDeleteTable,
   onAddRelationshipFromTable,
+  dataTypeOptions,
+  onInlineRenameTable,
+  onInlineRenameColumn,
+  onInlineChangeColumnType,
   onManualConnect,
-  onPairTableRequest,
 }: DiagramCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [reactFlowInstance, setReactFlowInstance] =
@@ -130,10 +143,22 @@ export function DiagramCanvas({
         relatedColumnIds: Array.from(
           relatedColumnsByTable.get(table.table_id) ?? [],
         ),
+        dataTypeOptions,
+        onRenameTable: onInlineRenameTable,
+        onRenameColumn: onInlineRenameColumn,
+        onChangeColumnType: onInlineChangeColumnType,
       },
       selected: table.table_id === selectedTableId,
     }));
-  }, [diagram?.relationships, diagram?.tables, selectedTableId]);
+  }, [
+    dataTypeOptions,
+    diagram?.relationships,
+    diagram?.tables,
+    onInlineChangeColumnType,
+    onInlineRenameColumn,
+    onInlineRenameTable,
+    selectedTableId,
+  ]);
 
   const edges: Edge[] = useMemo(() => {
     return (diagram?.relationships ?? []).map((relationship) => ({
@@ -156,107 +181,87 @@ export function DiagramCanvas({
     }));
   }, [diagram?.relationships, selectedTableId]);
 
-  const closeMenus = () => {
+  const closeMenus = useCallback(() => {
     setPaneMenu(null);
     setNodeMenu(null);
-  };
+  }, []);
 
-  const handleNodeClick: NodeMouseHandler = (_event, node) => {
-    onSelectTable(node.id);
-    closeMenus();
-  };
+  const handleNodeClick: NodeMouseHandler = useCallback(
+    (_event, node) => {
+      onSelectTable(node.id);
+      closeMenus();
+    },
+    [closeMenus, onSelectTable],
+  );
 
-  const handlePaneContextMenu = (
-    event: MouseEvent | React.MouseEvent<Element, MouseEvent>,
-  ) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (!reactFlowInstance || !containerRef.current) {
-      return;
-    }
-
-    const bounds = containerRef.current.getBoundingClientRect();
-    const flowPoint = reactFlowInstance.screenToFlowPosition({
-      x: event.clientX,
-      y: event.clientY,
-    });
-
-    setNodeMenu(null);
-    setPaneMenu({
-      x: event.clientX - bounds.left,
-      y: event.clientY - bounds.top,
-      flowX: flowPoint.x,
-      flowY: flowPoint.y,
-    });
-  };
-
-  const handleNodeContextMenu: NodeMouseHandler = (event, node) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (!containerRef.current) {
-      return;
-    }
-
-    const bounds = containerRef.current.getBoundingClientRect();
-    onSelectTable(node.id);
-    setPaneMenu(null);
-    setNodeMenu({
-      x: event.clientX - bounds.left,
-      y: event.clientY - bounds.top,
-      tableId: node.id,
-    });
-  };
-
-  const handleConnect: OnConnect = (connection) => {
-    const fromColumnId = extractColumnId(connection.sourceHandle);
-    const toColumnId = extractColumnId(connection.targetHandle);
-
-    if (
-      !connection.source ||
-      !connection.target ||
-      !fromColumnId ||
-      !toColumnId
-    ) {
-      return;
-    }
-
-    onManualConnect({
-      fromTableId: connection.source,
-      fromColumnId,
-      toTableId: connection.target,
-      toColumnId,
-    });
-  };
-
-  const findNearbyTable = (dragged: Node): string | null => {
-    if (!reactFlowInstance) {
-      return null;
-    }
-
-    const nodes = reactFlowInstance.getNodes();
-    let nearestId: string | null = null;
-    let nearestDistance = Number.POSITIVE_INFINITY;
-
-    for (const node of nodes) {
-      if (node.id === dragged.id) {
-        continue;
+  const handlePaneContextMenu = useCallback(
+    (event: MouseEvent | React.MouseEvent<Element, MouseEvent>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!reactFlowInstance || !containerRef.current) {
+        return;
       }
 
-      const dx = node.position.x - dragged.position.x;
-      const dy = node.position.y - dragged.position.y;
-      const distance = Math.sqrt(dx * dx + dy * dy);
+      const bounds = containerRef.current.getBoundingClientRect();
+      const flowPoint = reactFlowInstance.screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      });
 
-      if (distance < nearestDistance) {
-        nearestDistance = distance;
-        nearestId = node.id;
+      setNodeMenu(null);
+      setPaneMenu({
+        x: event.clientX - bounds.left,
+        y: event.clientY - bounds.top,
+        flowX: flowPoint.x,
+        flowY: flowPoint.y,
+      });
+    },
+    [reactFlowInstance],
+  );
+
+  const handleNodeContextMenu: NodeMouseHandler = useCallback(
+    (event, node) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!containerRef.current) {
+        return;
       }
-    }
 
-    if (nearestDistance <= 190) {
-      return nearestId;
-    }
-    return null;
-  };
+      const bounds = containerRef.current.getBoundingClientRect();
+      onSelectTable(node.id);
+      setPaneMenu(null);
+      setNodeMenu({
+        x: event.clientX - bounds.left,
+        y: event.clientY - bounds.top,
+        tableId: node.id,
+      });
+    },
+    [onSelectTable],
+  );
+
+  const handleConnect: OnConnect = useCallback(
+    (connection) => {
+      const fromColumnId = extractColumnId(connection.sourceHandle);
+      const toColumnId = extractColumnId(connection.targetHandle);
+
+      if (
+        !connection.source ||
+        !connection.target ||
+        !fromColumnId ||
+        !toColumnId
+      ) {
+        return;
+      }
+
+      onManualConnect({
+        fromTableId: connection.source,
+        fromColumnId,
+        toTableId: connection.target,
+        toColumnId,
+      });
+    },
+    [onManualConnect],
+  );
 
   return (
     <div
@@ -277,13 +282,12 @@ export function DiagramCanvas({
         onPaneClick={closeMenus}
         onNodeDragStop={(_event, node) => {
           onTablePositionChange(node.id, node.position);
-          const nearbyTableId = findNearbyTable(node);
-          if (nearbyTableId) {
-            onPairTableRequest(node.id, nearbyTableId);
-          }
         }}
         onConnect={handleConnect}
         connectionMode={ConnectionMode.Strict}
+        nodeDragThreshold={0}
+        connectionDragThreshold={6}
+        onlyRenderVisibleElements
         minZoom={0.25}
         maxZoom={2}
       >

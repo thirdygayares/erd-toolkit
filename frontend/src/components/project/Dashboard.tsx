@@ -32,6 +32,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   type MouseEvent as ReactMouseEvent,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -1102,6 +1103,116 @@ export function Dashboard({
     }
     cancelSidebarTableRename();
   }
+
+  const renameTableInline = useCallback(
+    async (tableId: string, nextDisplayName: string) => {
+      if (!diagramId) {
+        return;
+      }
+
+      const table = tables.find((item) => item.table_id === tableId);
+      if (!table) {
+        return;
+      }
+
+      const nextValue = nextDisplayName.trim();
+      if (!nextValue) {
+        return;
+      }
+
+      const currentValue = table.display_name ?? table.table_name;
+      if (nextValue === currentValue) {
+        return;
+      }
+
+      try {
+        await updateTableMutation.mutateAsync({
+          diagramId,
+          tableId,
+          payload: {
+            display_name: nextValue,
+          },
+        });
+        setStatusMessage("Table name updated.");
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Unable to rename table.";
+        setStatusMessage(message);
+      }
+    },
+    [diagramId, tables, updateTableMutation],
+  );
+
+  const renameColumnInline = useCallback(
+    async (tableId: string, columnId: string, nextColumnName: string) => {
+      if (!diagramId) {
+        return;
+      }
+
+      const table = tables.find((item) => item.table_id === tableId);
+      const column = table?.columns.find((item) => item.column_id === columnId);
+      if (!table || !column) {
+        return;
+      }
+
+      const nextValue = nextColumnName.trim();
+      if (!nextValue || nextValue === column.column_name) {
+        return;
+      }
+
+      try {
+        await updateColumnMutation.mutateAsync({
+          diagramId,
+          tableId,
+          columnId,
+          payload: {
+            column_name: nextValue,
+          },
+        });
+        setStatusMessage("Column name updated.");
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Unable to update column.";
+        setStatusMessage(message);
+      }
+    },
+    [diagramId, tables, updateColumnMutation],
+  );
+
+  const changeColumnTypeInline = useCallback(
+    async (tableId: string, columnId: string, nextTypeName: string) => {
+      if (!diagramId) {
+        return;
+      }
+
+      const table = tables.find((item) => item.table_id === tableId);
+      const column = table?.columns.find((item) => item.column_id === columnId);
+      if (!table || !column) {
+        return;
+      }
+
+      const nextValue = nextTypeName.trim() || "text";
+      const currentTypeName = getColumnTypeName(column);
+      if (nextValue === currentTypeName) {
+        return;
+      }
+
+      try {
+        await updateColumnMutation.mutateAsync({
+          diagramId,
+          tableId,
+          columnId,
+          payload: buildColumnTypePayload(nextValue, customTypeNameSet),
+        });
+        setStatusMessage("Column type updated.");
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Unable to update column.";
+        setStatusMessage(message);
+      }
+    },
+    [customTypeNameSet, diagramId, tables, updateColumnMutation],
+  );
 
   function closeTableDialog() {
     setTableDialog((current) => ({ ...current, open: false }));
@@ -2875,7 +2986,6 @@ export function Dashboard({
               <Link2 className="h-4 w-4" />
               Share
             </button>
-
           </div>
         </div>
       </header>
@@ -4752,6 +4862,16 @@ export function Dashboard({
                 onAddRelationshipFromTable={(tableId) => {
                   openCreateRelationshipDialog(tableId);
                 }}
+                dataTypeOptions={customTypeOptions}
+                onInlineRenameTable={(tableId, nextDisplayName) => {
+                  void renameTableInline(tableId, nextDisplayName);
+                }}
+                onInlineRenameColumn={(tableId, columnId, nextColumnName) => {
+                  void renameColumnInline(tableId, columnId, nextColumnName);
+                }}
+                onInlineChangeColumnType={(tableId, columnId, nextTypeName) => {
+                  void changeColumnTypeInline(tableId, columnId, nextTypeName);
+                }}
                 onManualConnect={(connection) => {
                   openCreateRelationshipDialog(
                     connection.fromTableId,
@@ -4762,9 +4882,6 @@ export function Dashboard({
                     sourceColumnId: connection.fromColumnId,
                     targetColumnId: connection.toColumnId,
                   }));
-                }}
-                onPairTableRequest={(sourceTableId, targetTableId) => {
-                  openCreateRelationshipDialog(sourceTableId, targetTableId);
                 }}
               />
             )}
