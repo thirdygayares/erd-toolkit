@@ -413,3 +413,14 @@ export interface ExportSqlResponse {
   statement_count: number;
   sql_output: string;
 }
+
+export type DictionaryExportLayout = "table_grid" | "section_sheet";
+export type DictionaryExportFileType = "csv" | "xlsx";
+
+export interface ExportDictionaryRequest {
+  source_schema_names?: string[];
+  export_all_schemas?: boolean;
+  layout: DictionaryExportLayout;
+  file_type: DictionaryExportFileType;
+  include_enums?: boolean;
+}

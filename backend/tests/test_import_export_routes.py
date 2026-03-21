@@ -42,6 +42,13 @@ class StubExportService:
             "sql_output": 'CREATE TABLE "public"."users" (\n  "id" uuid NOT NULL\n);\n',
         }
 
+    def export_dictionary(self, diagram_id, payload, ctx):
+        return {
+            "filename": "erd_data_dictionary.csv",
+            "content": b"Schema,Table\\npublic,users\\n",
+            "content_type": "text/csv; charset=utf-8",
+        }
+
 
 def test_import_postgres_endpoint(client, app):
     app.dependency_overrides[get_introspection_service] = lambda: StubIntrospectionService()
@@ -109,3 +116,23 @@ def test_export_sql_endpoint(client, app):
 
     assert response.status_code == 201
     assert response.json()["statement_count"] == 2
+
+
+def test_export_dictionary_endpoint(client, app):
+    app.dependency_overrides[get_export_service] = lambda: StubExportService()
+
+    response = client.post(
+        f"/api/v1/diagrams/{uuid4()}/export/dictionary",
+        json={
+            "source_schema_names": ["public"],
+            "export_all_schemas": False,
+            "layout": "table_grid",
+            "file_type": "csv",
+            "include_enums": True,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert "attachment; filename=" in response.headers["content-disposition"]
+    assert "Schema,Table" in response.text
