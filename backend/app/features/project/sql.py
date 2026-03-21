@@ -35,6 +35,16 @@ FROM api.fn_project_set_visibility(
 );
 """
 
+UPDATE_PROJECT = """
+SELECT *
+FROM api.fn_project_update(
+    p_project_id => %(project_id)s::uuid,
+    p_name => %(name)s,
+    p_description => %(description)s,
+    p_actor_id => %(actor_id)s::uuid
+);
+"""
+
 GET_PROJECT_BY_ID = """
 SELECT *
 FROM api.fn_project_get(

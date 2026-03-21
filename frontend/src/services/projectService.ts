@@ -3,6 +3,7 @@ import type {
   ProjectCreateRequest,
   ProjectListResponse,
   ProjectResponse,
+  ProjectUpdateRequest,
   ProjectVisibilityUpdateRequest,
 } from "@/lib/types";
 
@@ -41,6 +42,17 @@ export class ProjectService {
   ): Promise<ProjectResponse> {
     const { data } = await axiosInstance.patch<ProjectResponse>(
       `/projects/${projectId}/visibility`,
+      payload,
+    );
+    return data;
+  }
+
+  async updateProject(
+    projectId: string,
+    payload: ProjectUpdateRequest,
+  ): Promise<ProjectResponse> {
+    const { data } = await axiosInstance.patch<ProjectResponse>(
+      `/projects/${projectId}`,
       payload,
     );
     return data;

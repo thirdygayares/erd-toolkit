@@ -53,6 +53,7 @@ import { useListPostgresSchemasMutation } from "@/hooks/import/useListPostgresSc
 import { useTestPostgresConnectionMutation } from "@/hooks/import/useTestPostgresConnectionMutation";
 import { useDuplicateProjectMutation } from "@/hooks/project/useDuplicateProjectMutation";
 import { useGetProjectQuery } from "@/hooks/project/useGetProjectQuery";
+import { useUpdateProjectMutation } from "@/hooks/project/useUpdateProjectMutation";
 import { useUpdateProjectVisibilityMutation } from "@/hooks/project/useUpdateProjectVisibilityMutation";
 import { useCreateColumnMutation } from "@/hooks/schemaEditor/useCreateColumnMutation";
 import { useCreateCustomTypeMutation } from "@/hooks/schemaEditor/useCreateCustomTypeMutation";
@@ -458,9 +459,12 @@ export function Dashboard({
   const [sidebarPanelWidth, setSidebarPanelWidth] = useState(300);
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
+  const projectNameInputRef = useRef<HTMLInputElement>(null);
   const sidebarRenameInputRef = useRef<HTMLInputElement>(null);
   const [tableFilter, setTableFilter] = useState("");
   const [relationFilter, setRelationFilter] = useState("");
+  const [isEditingProjectName, setIsEditingProjectName] = useState(false);
+  const [editingProjectName, setEditingProjectName] = useState("");
 
   const [selectedTableId, setSelectedTableId] = useState("");
   const [selectedColumnId, setSelectedColumnId] = useState("");
@@ -636,6 +640,7 @@ export function Dashboard({
   const updateRelationshipMutation = useUpdateRelationshipMutation();
   const deleteRelationshipMutation = useDeleteRelationshipMutation();
 
+  const updateProjectMutation = useUpdateProjectMutation();
   const updateProjectVisibilityMutation = useUpdateProjectVisibilityMutation();
   const testPostgresConnectionMutation = useTestPostgresConnectionMutation();
   const listPostgresSchemasMutation = useListPostgresSchemasMutation();
@@ -779,7 +784,23 @@ export function Dashboard({
     sidebarRenameInputRef.current?.select();
   }, [editingSidebarTableId]);
 
+  useEffect(() => {
+    if (!isEditingProjectName) {
+      return;
+    }
+    projectNameInputRef.current?.focus();
+    projectNameInputRef.current?.select();
+  }, [isEditingProjectName]);
+
+  useEffect(() => {
+    if (!projectQuery.data?.name || isEditingProjectName) {
+      return;
+    }
+    setEditingProjectName(projectQuery.data.name);
+  }, [projectQuery.data?.name, isEditingProjectName]);
+
   const isWorking =
+    updateProjectMutation.isPending ||
     createDiagramMutation.isPending ||
     createTableMutation.isPending ||
     updateTableMutation.isPending ||
@@ -2869,6 +2890,53 @@ export function Dashboard({
     }
   }
 
+  function beginProjectNameEdit() {
+    if (!projectQuery.data) {
+      return;
+    }
+    setEditingProjectName(projectQuery.data.name);
+    setIsEditingProjectName(true);
+  }
+
+  function cancelProjectNameEdit() {
+    if (projectQuery.data) {
+      setEditingProjectName(projectQuery.data.name);
+    }
+    setIsEditingProjectName(false);
+  }
+
+  async function commitProjectNameEdit() {
+    if (!projectQuery.data || !isEditingProjectName) {
+      return;
+    }
+
+    const nextName = editingProjectName.trim();
+    setIsEditingProjectName(false);
+
+    if (!nextName) {
+      setEditingProjectName(projectQuery.data.name);
+      setStatusMessage("Project name cannot be empty.");
+      return;
+    }
+
+    if (nextName === projectQuery.data.name) {
+      setEditingProjectName(projectQuery.data.name);
+      return;
+    }
+
+    try {
+      const updated = await updateProjectMutation.mutateAsync({
+        projectId: projectQuery.data.project_id,
+        payload: { name: nextName },
+      });
+      setEditingProjectName(updated.name);
+      setStatusMessage("Project name updated.");
+    } catch (error) {
+      setEditingProjectName(projectQuery.data.name);
+      setStatusMessage(getApiErrorMessage(error, "Unable to update project."));
+    }
+  }
+
   async function copyShareLink() {
     if (!shareSlug || typeof window === "undefined") {
       return;
@@ -3340,9 +3408,34 @@ export function Dashboard({
             >
               ERD
             </Link>
-            <span className="max-w-[220px] truncate lg:max-w-[380px]">
-              {projectQuery.data.name}
-            </span>
+            {isEditingProjectName ? (
+              <input
+                ref={projectNameInputRef}
+                value={editingProjectName}
+                onChange={(event) => setEditingProjectName(event.target.value)}
+                onBlur={() => void commitProjectNameEdit()}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    event.currentTarget.blur();
+                  } else if (event.key === "Escape") {
+                    event.preventDefault();
+                    cancelProjectNameEdit();
+                  }
+                }}
+                maxLength={140}
+                className="h-7 w-full max-w-[220px] rounded-md border border-blue-300 px-2 text-sm font-semibold outline-none focus:border-blue-500 lg:max-w-[380px]"
+              />
+            ) : (
+              <button
+                type="button"
+                onDoubleClick={beginProjectNameEdit}
+                className="max-w-[220px] truncate rounded px-1 text-left hover:bg-slate-100 lg:max-w-[380px]"
+                title="Double-click to rename project"
+              >
+                {projectQuery.data.name}
+              </button>
+            )}
             <div className="ml-1 hidden items-center gap-1 text-xs font-medium text-slate-600 lg:flex">
               <div className="relative">
                 <button
@@ -3392,16 +3485,8 @@ export function Dashboard({
                 View
               </button>
               <div className="flex items-center gap-1 rounded px-2 py-1 text-slate-600">
-                <span>Help:</span>
-                <Link className="hover:text-slate-900" href="/terms">
-                  Terms and Conditions
-                </Link>
-                <span aria-hidden className="text-slate-300">
-                  |
-                </span>
-                <Link className="hover:text-slate-900" href="/privacy">
-                  Privacy Policy
-                </Link>
+                <span>Help</span>
+
               </div>
             </div>
           </div>

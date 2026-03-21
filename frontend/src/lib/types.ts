@@ -98,6 +98,11 @@ export interface ProjectCreateRequest {
   share_slug?: string | null;
 }
 
+export interface ProjectUpdateRequest {
+  name?: string;
+  description?: string | null;
+}
+
 export interface ProjectVisibilityUpdateRequest {
   visibility: "public" | "private";
   allow_anonymous_edit: boolean;

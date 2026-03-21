@@ -7,6 +7,7 @@ from uuid import uuid4
 from psycopg.errors import UniqueViolation
 
 from app.core.errors import ConflictError
+from app.features.project.schemas import ProjectUpdateRequest
 from app.features.project.services import ProjectService
 
 
@@ -33,6 +34,20 @@ class _FakeCursor:
                 "visibility": "private",
                 "share_slug": "copy-share",
                 "allow_anonymous_edit": False,
+                "is_archived": False,
+                "created_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(timezone.utc),
+            }
+        elif "fn_project_update" in query:
+            self._row = {
+                "project_id": uuid4(),
+                "workspace_id": uuid4(),
+                "owner_user_id": uuid4(),
+                "name": "Renamed Project",
+                "description": "Updated description",
+                "visibility": "public",
+                "share_slug": "share-abc",
+                "allow_anonymous_edit": True,
                 "is_archived": False,
                 "created_at": datetime.now(timezone.utc),
                 "updated_at": datetime.now(timezone.utc),
@@ -103,6 +118,56 @@ def test_duplicate_project_translates_workspace_name_conflict():
 
     try:
         service.duplicate_project(str(uuid4()), "Copy of ERD", ctx=_FakeContext())
+    except ConflictError as exc:
+        assert str(exc) == "A project with that name already exists in this workspace."
+    else:
+        raise AssertionError("expected ConflictError for duplicate project name")
+
+
+class _UserContext:
+    current_user_id = uuid4()
+    share_slug = None
+    request_mode = "authenticated"
+
+
+def test_update_project_uses_database_contract():
+    cursor = _FakeCursor()
+    db = _FakeDatabase(cursor)
+    service = ProjectService(db)
+    project_id = str(uuid4())
+
+    result = service.update_project(
+        project_id,
+        payload=ProjectUpdateRequest(
+            name="Renamed Project",
+            description="Updated description",
+        ),
+        ctx=_UserContext(),
+    )
+
+    assert result["name"] == "Renamed Project"
+    assert len(cursor.calls) == 1
+    query, params = cursor.calls[0]
+    assert "api.fn_project_update" in query
+    assert params == {
+        "project_id": project_id,
+        "name": "Renamed Project",
+        "description": "Updated description",
+        "actor_id": str(_UserContext.current_user_id),
+    }
+
+
+def test_update_project_translates_workspace_name_conflict():
+    cursor = _UniqueViolationCursor()
+    db = _FakeDatabase(cursor)
+    service = ProjectService(db)
+
+    try:
+        service.update_project(
+            str(uuid4()),
+            payload=ProjectUpdateRequest(name="Duplicate"),
+            ctx=_UserContext(),
+        )
     except ConflictError as exc:
         assert str(exc) == "A project with that name already exists in this workspace."
     else:
