@@ -601,3 +601,139 @@ def test_generate_sql_raises_for_unknown_source_schema_selection():
         assert "Unknown source schema selection" in str(exc)
     else:
         raise AssertionError("expected ValidationError for unknown source schema")
+
+
+def test_build_dictionary_rows_table_grid_includes_example_and_fk_reference():
+    users_table_id = str(uuid4())
+    orders_table_id = str(uuid4())
+    users_pk_id = str(uuid4())
+    orders_fk_id = str(uuid4())
+
+    tables = [
+        {
+            "table_id": users_table_id,
+            "schema_name": "public",
+            "table_name": "users",
+        },
+        {
+            "table_id": orders_table_id,
+            "schema_name": "public",
+            "table_name": "orders",
+        },
+    ]
+    columns_by_table = {
+        users_table_id: [
+            {
+                "column_id": users_pk_id,
+                "column_name": "id",
+                "data_type": "uuid",
+                "udt_name": None,
+                "is_nullable": False,
+                "default_sql": "gen_random_uuid()",
+                "example_value": "9d0e",
+                "is_unique": True,
+                "is_primary_key": True,
+                "comment_text": "primary id",
+            }
+        ],
+        orders_table_id: [
+            {
+                "column_id": orders_fk_id,
+                "column_name": "user_id",
+                "data_type": "uuid",
+                "udt_name": None,
+                "is_nullable": False,
+                "default_sql": None,
+                "example_value": "9d0e",
+                "is_unique": False,
+                "is_primary_key": False,
+                "comment_text": "owner",
+            }
+        ],
+    }
+    relationships = [
+        {
+            "relationship_id": str(uuid4()),
+            "name": "fk_orders_user",
+            "from_table_id": orders_table_id,
+            "from_column_id": orders_fk_id,
+            "to_table_id": users_table_id,
+            "to_column_id": users_pk_id,
+        }
+    ]
+
+    service = ExportService(db=None)  # type: ignore[arg-type]
+    rows = service._build_dictionary_rows(  # pylint: disable=protected-access
+        tables=tables,
+        relationships=relationships,
+        custom_types=[],
+        columns_by_table=columns_by_table,
+        layout="table_grid",
+        include_enums=False,
+    )
+
+    assert rows[0] == [
+        "Schema",
+        "Table",
+        "Field",
+        "Type",
+        "Not Null",
+        "Default",
+        "Example",
+        "Unique",
+        "PK",
+        "FK",
+        "Description",
+    ]
+    assert ["public", "orders", "user_id", "uuid", "Yes", "", "9d0e", "No", "No", "public.users.id", "owner"] in rows
+
+
+def test_build_dictionary_rows_section_sheet_uses_grouped_layout():
+    table_id = str(uuid4())
+    column_id = str(uuid4())
+    tables = [
+        {
+            "table_id": table_id,
+            "schema_name": "public",
+            "table_name": "users",
+        }
+    ]
+    columns_by_table = {
+        table_id: [
+            {
+                "column_id": column_id,
+                "column_name": "id",
+                "data_type": "uuid",
+                "udt_name": None,
+                "is_nullable": False,
+                "default_sql": "gen_random_uuid()",
+                "example_value": "9d0e",
+                "is_unique": True,
+                "is_primary_key": True,
+                "comment_text": "primary id",
+            }
+        ]
+    }
+
+    service = ExportService(db=None)  # type: ignore[arg-type]
+    rows = service._build_dictionary_rows(  # pylint: disable=protected-access
+        tables=tables,
+        relationships=[],
+        custom_types=[],
+        columns_by_table=columns_by_table,
+        layout="section_sheet",
+        include_enums=False,
+    )
+
+    assert rows[0][0] == "public.users"
+    assert rows[1] == [
+        "Key",
+        "Field",
+        "Type",
+        "Not Null",
+        "Default",
+        "Description",
+        "Example",
+        "FK",
+    ]
+    assert rows[2][:4] == ["PK", "id", "uuid", "NOT NULL"]

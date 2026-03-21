@@ -44,6 +44,7 @@ import { useCreateDiagramMutation } from "@/hooks/diagram/useCreateDiagramMutati
 import { useCreateSnapshotMutation } from "@/hooks/diagram/useCreateSnapshotMutation";
 import { useGetDiagramQuery } from "@/hooks/diagram/useGetDiagramQuery";
 import { useListDiagramsByWorkspaceQuery } from "@/hooks/diagram/useListDiagramsByWorkspaceQuery";
+import { useExportDictionaryMutation } from "@/hooks/export/useExportDictionaryMutation";
 import { useExportSqlMutation } from "@/hooks/export/useExportSqlMutation";
 import { useImportPostgresMutation } from "@/hooks/import/useImportPostgresMutation";
 import { useListPostgresSchemasMutation } from "@/hooks/import/useListPostgresSchemasMutation";
@@ -72,6 +73,8 @@ import type {
   ColumnResponse,
   CustomTypeResponse,
   DiagramDetailResponse,
+  DictionaryExportFileType,
+  DictionaryExportLayout,
   PostgresConnectionRequest,
   TableResponse,
 } from "@/lib/types";
@@ -89,6 +92,7 @@ type SidebarMode = "tables" | "relations" | "customTypes" | "importExport";
 type TableDialogMode = "create" | "edit";
 type RelationshipDialogMode = "create" | "edit";
 type ProjectView = "erd" | "dictionary";
+type ExportDialogTab = "sql" | "csv";
 
 const tableColors = [
   "#65d5b8",
@@ -520,6 +524,12 @@ export function Dashboard({
   );
   const [exportSchema, setExportSchema] = useState("public");
   const [exportSqlOutput, setExportSqlOutput] = useState("");
+  const [exportDialogTab, setExportDialogTab] =
+    useState<ExportDialogTab>("sql");
+  const [dictionaryLayout, setDictionaryLayout] =
+    useState<DictionaryExportLayout>("table_grid");
+  const [dictionaryFileType, setDictionaryFileType] =
+    useState<DictionaryExportFileType>("csv");
 
   const attemptedDiagramCreateKeyRef = useRef<string | null>(null);
 
@@ -550,6 +560,7 @@ export function Dashboard({
   const listPostgresSchemasMutation = useListPostgresSchemasMutation();
   const importPostgresMutation = useImportPostgresMutation();
   const exportSqlMutation = useExportSqlMutation();
+  const exportDictionaryMutation = useExportDictionaryMutation();
   const createSnapshotMutation = useCreateSnapshotMutation();
 
   const tables = diagramQuery.data?.tables ?? emptyTables;
@@ -561,6 +572,12 @@ export function Dashboard({
       (left, right) => left.localeCompare(right),
     );
   }, [tables]);
+  const selectedSourceExportSchemas = useMemo(() => {
+    if (exportAllSchemas) {
+      return availableExportSchemas;
+    }
+    return selectedExportSchemas;
+  }, [availableExportSchemas, exportAllSchemas, selectedExportSchemas]);
 
   const selectedTable = useMemo(() => {
     return tables.find((table) => table.table_id === selectedTableId) ?? null;
@@ -696,6 +713,7 @@ export function Dashboard({
     listPostgresSchemasMutation.isPending ||
     importPostgresMutation.isPending ||
     exportSqlMutation.isPending ||
+    exportDictionaryMutation.isPending ||
     createSnapshotMutation.isPending ||
     updateProjectVisibilityMutation.isPending;
 
@@ -2687,11 +2705,7 @@ export function Dashboard({
     }
 
     try {
-      const selectedSchemas = exportAllSchemas
-        ? availableExportSchemas
-        : selectedExportSchemas;
-
-      if (!exportAllSchemas && selectedSchemas.length === 0) {
+      if (!exportAllSchemas && selectedSourceExportSchemas.length === 0) {
         setStatusMessage("Select at least one source schema for export.");
         return;
       }
@@ -2700,7 +2714,7 @@ export function Dashboard({
         diagramId,
         payload: {
           target_schema: exportSchema.trim() || "public",
-          source_schema_names: selectedSchemas,
+          source_schema_names: selectedSourceExportSchemas,
           export_all_schemas: exportAllSchemas,
         },
       });
@@ -2708,6 +2722,51 @@ export function Dashboard({
       setStatusMessage(`Export done: ${result.statement_count} statements.`);
     } catch (error) {
       const message = getApiErrorMessage(error, "Unable to export SQL.");
+      setStatusMessage(message);
+    }
+  }
+
+  async function exportDictionaryFile() {
+    if (!diagramId) {
+      return;
+    }
+
+    if (!exportAllSchemas && selectedSourceExportSchemas.length === 0) {
+      setStatusMessage("Select at least one source schema for export.");
+      return;
+    }
+
+    try {
+      const exported = await exportDictionaryMutation.mutateAsync({
+        diagramId,
+        payload: {
+          source_schema_names: selectedSourceExportSchemas,
+          export_all_schemas: exportAllSchemas,
+          layout: dictionaryLayout,
+          file_type: dictionaryFileType,
+          include_enums: true,
+        },
+      });
+
+      if (typeof window === "undefined") {
+        return;
+      }
+
+      const downloadUrl = window.URL.createObjectURL(exported.blob);
+      const anchor = document.createElement("a");
+      anchor.href = downloadUrl;
+      anchor.download = exported.filename;
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+
+      setStatusMessage(`Dictionary downloaded: ${exported.filename}`);
+    } catch (error) {
+      const message = getApiErrorMessage(
+        error,
+        "Unable to export data dictionary.",
+      );
       setStatusMessage(message);
     }
   }
@@ -5581,9 +5640,9 @@ export function Dashboard({
 
       {isExportDialogOpen ? (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/30 p-4">
-          <div className="w-full max-w-xl rounded-xl border border-slate-300 bg-white p-4 shadow-xl">
+          <div className="w-full max-w-2xl rounded-xl border border-slate-300 bg-white p-4 shadow-xl">
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-lg font-semibold">Export SQL</h3>
+              <h3 className="text-lg font-semibold">Export</h3>
               <button
                 type="button"
                 onClick={() => setIsExportDialogOpen(false)}
@@ -5593,18 +5652,50 @@ export function Dashboard({
               </button>
             </div>
 
+            <div className="mb-3 inline-flex rounded-md border border-slate-300 bg-slate-100 p-1">
+              <button
+                type="button"
+                onClick={() => setExportDialogTab("sql")}
+                className={`rounded px-3 py-1 text-xs font-semibold ${
+                  exportDialogTab === "sql"
+                    ? "bg-white text-slate-900 shadow-sm"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                SQL
+              </button>
+              <button
+                type="button"
+                onClick={() => setExportDialogTab("csv")}
+                className={`rounded px-3 py-1 text-xs font-semibold ${
+                  exportDialogTab === "csv"
+                    ? "bg-white text-slate-900 shadow-sm"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                Dictionary
+              </button>
+            </div>
+
             <div className="space-y-3">
-              <div>
-                <p className="mb-1 block text-xs font-semibold text-slate-600">
-                  Target schema
-                </p>
-                <input
-                  value={exportSchema}
-                  onChange={(event) => setExportSchema(event.target.value)}
-                  placeholder="public"
-                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
-                />
-              </div>
+              {exportDialogTab === "sql" ? (
+                <div>
+                  <p className="mb-1 block text-xs font-semibold text-slate-600">
+                    Target schema
+                  </p>
+                  <input
+                    value={exportSchema}
+                    onChange={(event) => setExportSchema(event.target.value)}
+                    placeholder="public"
+                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                  />
+                </div>
+              ) : (
+                <div className="rounded-md border border-slate-200 bg-slate-50 p-2 text-xs text-slate-700">
+                  Dictionary file is generated by the backend so full data is
+                  exported regardless of what is currently visible on screen.
+                </div>
+              )}
 
               <div className="rounded-md border border-slate-200 p-2">
                 <div className="mb-2 flex items-center justify-between">
@@ -5653,39 +5744,105 @@ export function Dashboard({
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold text-slate-700">
-                    SQL output
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => void copyExportSqlOutput()}
-                      disabled={!exportSqlOutput.trim()}
-                      className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      <Copy className="h-3.5 w-3.5" />
-                      Copy
-                    </button>
-                    <button
-                      type="button"
-                      onClick={downloadExportSqlOutput}
-                      disabled={!exportSqlOutput.trim()}
-                      className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      <Download className="h-3.5 w-3.5" />
-                      Download
-                    </button>
+              {exportDialogTab === "sql" ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-slate-700">
+                      SQL output
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void copyExportSqlOutput()}
+                        disabled={!exportSqlOutput.trim()}
+                        className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                        Copy
+                      </button>
+                      <button
+                        type="button"
+                        onClick={downloadExportSqlOutput}
+                        disabled={!exportSqlOutput.trim()}
+                        className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        Download
+                      </button>
+                    </div>
                   </div>
+                  <textarea
+                    value={exportSqlOutput}
+                    readOnly
+                    className="h-44 w-full rounded-md border border-slate-300 p-2 font-mono text-xs leading-relaxed"
+                    placeholder="Click Generate SQL to build SQL output..."
+                  />
                 </div>
-                <textarea
-                  value={exportSqlOutput}
-                  readOnly
-                  className="h-44 w-full rounded-md border border-slate-300 p-2 font-mono text-xs leading-relaxed"
-                  placeholder="Click Export to generate SQL output..."
-                />
-              </div>
+              ) : (
+                <div className="space-y-3 rounded-md border border-slate-200 bg-slate-50 p-3">
+                  <div>
+                    <p className="mb-1 text-xs font-semibold text-slate-700">
+                      Dictionary format
+                    </p>
+                    <div className="space-y-1.5">
+                      <label className="flex items-start gap-2 rounded border border-slate-200 bg-white px-2 py-1.5 text-xs">
+                        <input
+                          type="radio"
+                          name="dictionary-layout"
+                          checked={dictionaryLayout === "table_grid"}
+                          onChange={() => setDictionaryLayout("table_grid")}
+                        />
+                        <span>
+                          Grid format (schema/table per row, tulad ng first
+                          sample)
+                        </span>
+                      </label>
+                      <label className="flex items-start gap-2 rounded border border-slate-200 bg-white px-2 py-1.5 text-xs">
+                        <input
+                          type="radio"
+                          name="dictionary-layout"
+                          checked={dictionaryLayout === "section_sheet"}
+                          onChange={() => setDictionaryLayout("section_sheet")}
+                        />
+                        <span>
+                          Section sheet format (grouped per table, tulad ng
+                          second sample)
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="mb-1 text-xs font-semibold text-slate-700">
+                      File type
+                    </p>
+                    <div className="flex items-center gap-3 text-xs">
+                      <label className="inline-flex items-center gap-1">
+                        <input
+                          type="radio"
+                          name="dictionary-file-type"
+                          checked={dictionaryFileType === "csv"}
+                          onChange={() => setDictionaryFileType("csv")}
+                        />
+                        CSV
+                      </label>
+                      <label className="inline-flex items-center gap-1">
+                        <input
+                          type="radio"
+                          name="dictionary-file-type"
+                          checked={dictionaryFileType === "xlsx"}
+                          onChange={() => setDictionaryFileType("xlsx")}
+                        />
+                        XLSX
+                      </label>
+                    </div>
+                  </div>
+
+                  <p className="text-[11px] text-slate-600">
+                    Download is generated directly from backend.
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="mt-4 flex justify-end gap-2">
@@ -5698,10 +5855,23 @@ export function Dashboard({
               </button>
               <button
                 type="button"
-                onClick={() => void exportSql()}
+                onClick={() => {
+                  if (exportDialogTab === "sql") {
+                    void exportSql();
+                    return;
+                  }
+                  void exportDictionaryFile();
+                }}
+                disabled={
+                  (exportDialogTab === "sql" && exportSqlMutation.isPending) ||
+                  (exportDialogTab === "csv" &&
+                    exportDictionaryMutation.isPending)
+                }
                 className="rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700"
               >
-                Export
+                {exportDialogTab === "sql"
+                  ? "Generate SQL"
+                  : `Download ${dictionaryFileType.toUpperCase()}`}
               </button>
             </div>
           </div>
