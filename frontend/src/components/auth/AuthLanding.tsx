@@ -4,6 +4,7 @@ import { Database, LockKeyhole, Orbit, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { useSessionProvider } from "@/components/providers/SessionProvider";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -13,10 +14,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { useAuthSessionQuery } from "@/hooks/auth/useAuthSessionQuery";
 import { useLogoutMutation } from "@/hooks/auth/useLogoutMutation";
-import { useRefreshSessionMutation } from "@/hooks/auth/useRefreshSessionMutation";
-import { getBrowserCookie, getStoredProjectContext } from "@/lib/authStorage";
+import { getStoredProjectContext } from "@/lib/authStorage";
 import { cn } from "@/lib/utils";
 import { ProjectBootstrap } from "../project/ProjectBootstrap";
 import { OAuthButtonGroup } from "./OAuthButtonGroup";
@@ -26,12 +25,9 @@ type BootstrapChoice = "guest" | "personal" | null;
 export function AuthLanding() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const canReadCsrfCookie = Boolean(getBrowserCookie("erd_csrf_token"));
-  const sessionQuery = useAuthSessionQuery();
-  const refreshSessionMutation = useRefreshSessionMutation();
+  const { sessionQuery } = useSessionProvider();
   const logoutMutation = useLogoutMutation();
   const [bootstrapChoice, setBootstrapChoice] = useState<BootstrapChoice>(null);
-  const [refreshAttempted, setRefreshAttempted] = useState(false);
 
   const storedContext = useMemo(() => getStoredProjectContext(), []);
   const shareSlug = searchParams.get("share");
@@ -43,23 +39,6 @@ export function AuthLanding() {
 
     router.replace(`/share/${shareSlug}`);
   }, [router, shareSlug]);
-
-  useEffect(() => {
-    if (!canReadCsrfCookie || !sessionQuery.isError || refreshAttempted) {
-      return;
-    }
-
-    setRefreshAttempted(true);
-    refreshSessionMutation
-      .mutateAsync()
-      .then(() => sessionQuery.refetch())
-      .catch(() => undefined);
-  }, [
-    canReadCsrfCookie,
-    refreshAttempted,
-    refreshSessionMutation,
-    sessionQuery,
-  ]);
 
   if (bootstrapChoice === "guest") {
     return (

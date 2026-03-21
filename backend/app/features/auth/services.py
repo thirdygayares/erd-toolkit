@@ -52,6 +52,7 @@ class IssuedAuthSession:
             "session_id": self.session_id,
             "access_token_expires_at": self.access_token_expires_at,
             "refresh_token_expires_at": self.refresh_token_expires_at,
+            "csrf_token": self.csrf_token,
         }
 
 

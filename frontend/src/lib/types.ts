@@ -21,10 +21,12 @@ export interface AuthSessionResponse {
   session_id: string;
   access_token_expires_at: string;
   refresh_token_expires_at: string;
+  csrf_token?: string | null;
 }
 
 export interface AuthStatusResponse {
   user: AuthUser;
+  csrf_token?: string | null;
 }
 
 export interface EmailRegisterRequest {

@@ -14,16 +14,14 @@ import {
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { useSessionProvider } from "@/components/providers/SessionProvider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useAuthSessionQuery } from "@/hooks/auth/useAuthSessionQuery";
 import { useLogoutMutation } from "@/hooks/auth/useLogoutMutation";
-import { useRefreshSessionMutation } from "@/hooks/auth/useRefreshSessionMutation";
 import { useListProjectsQuery } from "@/hooks/project/useListProjectsQuery";
 import { useEnsureDefaultWorkspaceMutation } from "@/hooks/workspace/useEnsureDefaultWorkspaceMutation";
 import { useListWorkspacesQuery } from "@/hooks/workspace/useListWorkspacesQuery";
-import { getBrowserCookie } from "@/lib/authStorage";
 import { cn } from "@/lib/utils";
 import { CreateProjectDialog } from "./CreateProjectDialog";
 import { CreateWorkspaceDialog } from "./CreateWorkspaceDialog";
@@ -52,17 +50,20 @@ export function ProjectListPage() {
     null,
   );
   const [isClient, setIsClient] = useState(false);
-  const [refreshAttempted, setRefreshAttempted] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [searchTerm, setSearchTerm] = useState("");
   const [collapsedWorkspaceIds, setCollapsedWorkspaceIds] = useState<
     Record<string, boolean>
   >({});
 
-  const canReadCsrfCookie = Boolean(getBrowserCookie("erd_csrf_token"));
-  const sessionQuery = useAuthSessionQuery();
+  const {
+    isSessionRecoveryPending,
+    isSessionUnauthorized,
+    recoveryMessage,
+    recoveryReason,
+    sessionQuery,
+  } = useSessionProvider();
   const logoutMutation = useLogoutMutation();
-  const refreshSessionMutation = useRefreshSessionMutation();
   const { data: authSession, isLoading: authLoading } = sessionQuery;
   const userId = authSession?.user.user_id ?? null;
   const isAuthenticated = Boolean(authSession?.user);
@@ -72,8 +73,6 @@ export function ProjectListPage() {
     useListProjectsQuery(isAuthenticated);
   const ensureDefaultMutation = useEnsureDefaultWorkspaceMutation();
   const { mutate: ensureDefaultWorkspace } = ensureDefaultMutation;
-  const isSessionRecoveryPending =
-    canReadCsrfCookie && sessionQuery.isError && !refreshAttempted;
 
   const normalizedSearch = searchTerm.trim().toLowerCase();
   const filteredProjects = useMemo(() => {
@@ -149,23 +148,6 @@ export function ProjectListPage() {
     });
   }, [workspaces]);
 
-  useEffect(() => {
-    if (!canReadCsrfCookie || !sessionQuery.isError || refreshAttempted) {
-      return;
-    }
-
-    setRefreshAttempted(true);
-    refreshSessionMutation
-      .mutateAsync()
-      .then(() => sessionQuery.refetch())
-      .catch(() => undefined);
-  }, [
-    canReadCsrfCookie,
-    refreshAttempted,
-    refreshSessionMutation,
-    sessionQuery,
-  ]);
-
   // Ensure default workspace on mount
   useEffect(() => {
     if (!userId || ensuredUserIdRef.current === userId) {
@@ -175,30 +157,6 @@ export function ProjectListPage() {
     ensuredUserIdRef.current = userId;
     ensureDefaultWorkspace();
   }, [ensureDefaultWorkspace, userId]);
-
-  // Redirect to landing if not authenticated
-  useEffect(() => {
-    if (authLoading || refreshSessionMutation.isPending) {
-      return;
-    }
-
-    if (!authSession?.user && (!sessionQuery.isError || refreshAttempted)) {
-      router.push("/");
-      return;
-    }
-
-    if (sessionQuery.isError && (!canReadCsrfCookie || refreshAttempted)) {
-      router.push("/");
-    }
-  }, [
-    authLoading,
-    authSession?.user,
-    canReadCsrfCookie,
-    refreshAttempted,
-    refreshSessionMutation.isPending,
-    sessionQuery.isError,
-    router,
-  ]);
 
   const hasAnyProjects = projects.length > 0;
   const hasMatchingProjects = filteredProjects.length > 0;
@@ -222,7 +180,6 @@ export function ProjectListPage() {
 
   if (
     authLoading ||
-    refreshSessionMutation.isPending ||
     isSessionRecoveryPending ||
     (isAuthenticated && (workspacesLoading || projectsLoading))
   ) {
@@ -236,6 +193,39 @@ export function ProjectListPage() {
           <p className="mt-2 text-sm text-muted-foreground">
             Preparing your project hub.
           </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    const fallbackMessage =
+      "Sign in to continue to your private workspace dashboard.";
+    const message = recoveryMessage ?? fallbackMessage;
+
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top_left,_rgba(251,191,36,0.18),_transparent_40%),radial-gradient(circle_at_bottom_right,_rgba(14,165,233,0.12),_transparent_35%),linear-gradient(180deg,_#fffaf3_0%,_#f8fafc_55%,_#eff6ff_100%)] px-4">
+        <div className="w-full max-w-xl rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">
+          <h1 className="text-xl font-semibold text-slate-900">
+            {isSessionUnauthorized
+              ? "Session expired"
+              : "Authentication required"}
+          </h1>
+          <p className="mt-2 text-sm text-slate-600">{message}</p>
+          {recoveryReason === "missing-csrf-token" ? (
+            <p className="mt-2 text-sm text-amber-700">
+              CSRF token was not available in this browser session. Sign in
+              again to re-establish your secure auth cookies.
+            </p>
+          ) : null}
+          <div className="mt-5 flex flex-wrap gap-3">
+            <Button onClick={() => router.push("/auth/login")}>
+              Sign in again
+            </Button>
+            <Button onClick={() => router.push("/")} variant="outline">
+              Back to homepage
+            </Button>
+          </div>
         </div>
       </div>
     );

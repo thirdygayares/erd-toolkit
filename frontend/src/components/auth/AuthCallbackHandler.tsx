@@ -3,6 +3,7 @@
 import { Loader2 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { useSessionProvider } from "@/components/providers/SessionProvider";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -11,13 +12,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { useAuthSessionQuery } from "@/hooks/auth/useAuthSessionQuery";
 import { useClaimGuestMutation } from "@/hooks/auth/useClaimGuestMutation";
-import { useRefreshSessionMutation } from "@/hooks/auth/useRefreshSessionMutation";
 import { getApiErrorMessage } from "@/lib/apiError";
 import {
   clearStoredProjectContext,
-  getBrowserCookie,
   getStoredProjectContext,
 } from "@/lib/authStorage";
 
@@ -26,35 +24,14 @@ import { GuestClaimDialog } from "./GuestClaimDialog";
 export function AuthCallbackHandler() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const canReadCsrfCookie = Boolean(getBrowserCookie("erd_csrf_token"));
-  const sessionQuery = useAuthSessionQuery();
-  const refreshSessionMutation = useRefreshSessionMutation();
+  const { isSessionRecoveryPending, recoveryMessage, sessionQuery } =
+    useSessionProvider();
   const claimGuestMutation = useClaimGuestMutation();
-  const [refreshAttempted, setRefreshAttempted] = useState(false);
   const [claimError, setClaimError] = useState<string | null>(null);
 
   const storedContext = useMemo(() => getStoredProjectContext(), []);
   const provider = searchParams.get("provider") ?? "email";
   const loginError = searchParams.get("error");
-
-  useEffect(() => {
-    if (!canReadCsrfCookie || !sessionQuery.isError || refreshAttempted) {
-      return;
-    }
-
-    setRefreshAttempted(true);
-    refreshSessionMutation
-      .mutateAsync()
-      .then(() => sessionQuery.refetch())
-      .catch(() => {
-        return undefined;
-      });
-  }, [
-    canReadCsrfCookie,
-    refreshAttempted,
-    refreshSessionMutation,
-    sessionQuery,
-  ]);
 
   useEffect(() => {
     if (!sessionQuery.data?.user || claimGuestMutation.isSuccess) {
@@ -139,7 +116,7 @@ export function AuthCallbackHandler() {
     );
   }
 
-  if (sessionQuery.isLoading || refreshSessionMutation.isPending) {
+  if (sessionQuery.isLoading || isSessionRecoveryPending) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top_left,_rgba(245,158,11,0.18),_transparent_25%),linear-gradient(180deg,_#fffaf3_0%,_#f8fafc_100%)] px-4">
         <Card className="w-full max-w-lg">
@@ -161,8 +138,8 @@ export function AuthCallbackHandler() {
           <CardHeader>
             <CardTitle>We could not restore your session</CardTitle>
             <CardDescription>
-              The backend cookies were not available yet or the session expired
-              during the redirect flow.
+              {recoveryMessage ??
+                "The backend cookies were not available yet or the session expired during the redirect flow."}
             </CardDescription>
           </CardHeader>
           <CardContent className="flex gap-3">
