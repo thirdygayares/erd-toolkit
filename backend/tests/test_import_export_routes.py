@@ -32,6 +32,26 @@ class StubIntrospectionService:
             "relationship_count": 1,
         }
 
+    def import_sql_raw(self, diagram_id, payload, ctx):
+        return {
+            "import_job_id": uuid4(),
+            "connection_id": uuid4(),
+            "status": "success",
+            "table_count": 3,
+            "column_count": 10,
+            "relationship_count": 2,
+        }
+
+    def import_sql_file(self, diagram_id, file_content, filename, ctx):
+        return {
+            "import_job_id": uuid4(),
+            "connection_id": uuid4(),
+            "status": "success",
+            "table_count": 1,
+            "column_count": 2,
+            "relationship_count": 0,
+        }
+
 
 class StubExportService:
     def export_sql(self, diagram_id, payload, ctx):
@@ -86,6 +106,34 @@ def test_test_postgres_connection_endpoint(client, app):
 
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
+
+
+def test_import_sql_raw_endpoint(client, app):
+    app.dependency_overrides[get_introspection_service] = lambda: StubIntrospectionService()
+
+    response = client.post(
+        f"/api/v1/diagrams/{uuid4()}/import/sql/raw",
+        json={
+            "sql": "CREATE TABLE public.users (id uuid primary key, email text);",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["table_count"] == 3
+
+
+def test_import_sql_file_endpoint(client, app):
+    app.dependency_overrides[get_introspection_service] = lambda: StubIntrospectionService()
+
+    response = client.post(
+        f"/api/v1/diagrams/{uuid4()}/import/sql/file",
+        files={
+            "file": ("schema.sql", "CREATE TABLE public.users (id uuid primary key);", "application/sql"),
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["table_count"] == 1
 
 
 def test_list_postgres_schemas_endpoint(client, app):

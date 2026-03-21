@@ -47,6 +47,8 @@ import { useListDiagramsByWorkspaceQuery } from "@/hooks/diagram/useListDiagrams
 import { useExportDictionaryMutation } from "@/hooks/export/useExportDictionaryMutation";
 import { useExportSqlMutation } from "@/hooks/export/useExportSqlMutation";
 import { useImportPostgresMutation } from "@/hooks/import/useImportPostgresMutation";
+import { useImportSqlFileMutation } from "@/hooks/import/useImportSqlFileMutation";
+import { useImportSqlRawMutation } from "@/hooks/import/useImportSqlRawMutation";
 import { useListPostgresSchemasMutation } from "@/hooks/import/useListPostgresSchemasMutation";
 import { useTestPostgresConnectionMutation } from "@/hooks/import/useTestPostgresConnectionMutation";
 import { useDuplicateProjectMutation } from "@/hooks/project/useDuplicateProjectMutation";
@@ -93,6 +95,7 @@ type TableDialogMode = "create" | "edit";
 type RelationshipDialogMode = "create" | "edit";
 type ProjectView = "erd" | "dictionary";
 type ExportDialogTab = "sql" | "csv";
+type ImportDialogTab = "database" | "upload" | "paste";
 
 const tableColors = [
   "#65d5b8",
@@ -504,6 +507,10 @@ export function Dashboard({
   const [importPassword, setImportPassword] = useState("");
   const [importSslMode, setImportSslMode] = useState("prefer");
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
+  const [importDialogTab, setImportDialogTab] =
+    useState<ImportDialogTab>("database");
+  const [importSqlText, setImportSqlText] = useState("");
+  const [importSqlFile, setImportSqlFile] = useState<File | null>(null);
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
   const [connectionCheckStatus, setConnectionCheckStatus] =
     useState<ConnectionCheckStatus>("idle");
@@ -559,6 +566,8 @@ export function Dashboard({
   const testPostgresConnectionMutation = useTestPostgresConnectionMutation();
   const listPostgresSchemasMutation = useListPostgresSchemasMutation();
   const importPostgresMutation = useImportPostgresMutation();
+  const importSqlRawMutation = useImportSqlRawMutation();
+  const importSqlFileMutation = useImportSqlFileMutation();
   const exportSqlMutation = useExportSqlMutation();
   const exportDictionaryMutation = useExportDictionaryMutation();
   const createSnapshotMutation = useCreateSnapshotMutation();
@@ -712,6 +721,8 @@ export function Dashboard({
     testPostgresConnectionMutation.isPending ||
     listPostgresSchemasMutation.isPending ||
     importPostgresMutation.isPending ||
+    importSqlRawMutation.isPending ||
+    importSqlFileMutation.isPending ||
     exportSqlMutation.isPending ||
     exportDictionaryMutation.isPending ||
     createSnapshotMutation.isPending ||
@@ -2574,6 +2585,13 @@ export function Dashboard({
     window.location.href = "/";
   }
 
+  function openImportDialog() {
+    setImportDialogTab("database");
+    setImportSqlFile(null);
+    setImportSqlText("");
+    setIsImportDialogOpen(true);
+  }
+
   function buildConnectionPayload(): PostgresConnectionRequest {
     return {
       host: importHost.trim(),
@@ -2695,6 +2713,59 @@ export function Dashboard({
       setIsImportDialogOpen(false);
     } catch (error) {
       const message = getApiErrorMessage(error, "Unable to import schema.");
+      setStatusMessage(message);
+    }
+  }
+
+  async function importSchemaFromSqlText() {
+    if (!diagramId) {
+      return;
+    }
+
+    const sqlText = importSqlText.trim();
+    if (!sqlText) {
+      setStatusMessage("Paste SQL before importing.");
+      return;
+    }
+
+    try {
+      const result = await importSqlRawMutation.mutateAsync({
+        diagramId,
+        payload: {
+          sql: sqlText,
+        },
+      });
+      setStatusMessage(
+        `Import done: tables=${result.table_count} columns=${result.column_count} relationships=${result.relationship_count}`,
+      );
+      setIsImportDialogOpen(false);
+    } catch (error) {
+      const message = getApiErrorMessage(error, "Unable to import SQL text.");
+      setStatusMessage(message);
+    }
+  }
+
+  async function importSchemaFromSqlFile() {
+    if (!diagramId) {
+      return;
+    }
+
+    if (!importSqlFile) {
+      setStatusMessage("Choose a .sql file before importing.");
+      return;
+    }
+
+    try {
+      const result = await importSqlFileMutation.mutateAsync({
+        diagramId,
+        file: importSqlFile,
+      });
+      setStatusMessage(
+        `Import done: tables=${result.table_count} columns=${result.column_count} relationships=${result.relationship_count}`,
+      );
+      setIsImportDialogOpen(false);
+    } catch (error) {
+      const message = getApiErrorMessage(error, "Unable to import SQL file.");
       setStatusMessage(message);
     }
   }
@@ -3307,7 +3378,7 @@ export function Dashboard({
                 <div className="grid grid-cols-2 gap-1.5">
                   <button
                     type="button"
-                    onClick={() => setIsImportDialogOpen(true)}
+                    onClick={openImportDialog}
                     className="inline-flex items-center justify-center gap-1 rounded-md bg-slate-900 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-slate-700"
                   >
                     <Database className="h-4 w-4" />
@@ -5493,7 +5564,7 @@ export function Dashboard({
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/30 p-4">
           <div className="w-full max-w-xl rounded-xl border border-slate-300 bg-white p-4 shadow-xl">
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-lg font-semibold">Import PostgreSQL</h3>
+              <h3 className="text-lg font-semibold">Import Schema</h3>
               <button
                 type="button"
                 onClick={() => setIsImportDialogOpen(false)}
@@ -5503,120 +5574,221 @@ export function Dashboard({
               </button>
             </div>
 
+            <div className="mb-3 inline-flex rounded-md border border-slate-300 bg-slate-100 p-1">
+              <button
+                type="button"
+                onClick={() => setImportDialogTab("database")}
+                className={`rounded px-3 py-1 text-xs font-semibold ${
+                  importDialogTab === "database"
+                    ? "bg-white text-slate-900 shadow-sm"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                Database
+              </button>
+              <button
+                type="button"
+                onClick={() => setImportDialogTab("upload")}
+                className={`rounded px-3 py-1 text-xs font-semibold ${
+                  importDialogTab === "upload"
+                    ? "bg-white text-slate-900 shadow-sm"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                Upload File
+              </button>
+              <button
+                type="button"
+                onClick={() => setImportDialogTab("paste")}
+                className={`rounded px-3 py-1 text-xs font-semibold ${
+                  importDialogTab === "paste"
+                    ? "bg-white text-slate-900 shadow-sm"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                Paste SQL
+              </button>
+            </div>
+
             <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-2">
-                <input
-                  value={importHost}
-                  onChange={(event) => setImportHost(event.target.value)}
-                  placeholder="Host"
-                  className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
-                />
-                <input
-                  value={importPort}
-                  onChange={(event) =>
-                    setImportPort(Number(event.target.value) || 5432)
-                  }
-                  placeholder="Port"
-                  type="number"
-                  className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
-                />
-                <input
-                  value={importDatabase}
-                  onChange={(event) => setImportDatabase(event.target.value)}
-                  placeholder="Database"
-                  className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
-                />
-                <input
-                  value={importUser}
-                  onChange={(event) => setImportUser(event.target.value)}
-                  placeholder="Username"
-                  className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
-                />
-                <input
-                  value={importPassword}
-                  onChange={(event) => setImportPassword(event.target.value)}
-                  placeholder="Password"
-                  type="password"
-                  className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
-                />
-                <select
-                  value={importSslMode}
-                  onChange={(event) => setImportSslMode(event.target.value)}
-                  className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
-                >
-                  <option value="disable">SSL disable</option>
-                  <option value="prefer">SSL prefer</option>
-                  <option value="require">SSL require</option>
-                </select>
-              </div>
-
-              <div className="rounded-md border border-slate-200 bg-slate-50 p-2 text-xs text-slate-700">
-                <p className="font-semibold">Connection status</p>
-                <p>
-                  {visibleConnectionCheckStatus === "success"
-                    ? visibleConnectionCheckMessage || "Connection successful."
-                    : visibleConnectionCheckStatus === "failed"
-                      ? visibleConnectionCheckMessage || "Connection failed."
-                      : "Run test connection first."}
-                </p>
-              </div>
-
-              <div className="rounded-md border border-slate-200 p-2">
-                <div className="mb-2 flex items-center justify-between">
-                  <p className="text-xs font-semibold text-slate-700">
-                    Schemas to import
-                  </p>
-                  <label className="inline-flex items-center gap-1 text-xs text-slate-600">
+              {importDialogTab === "database" ? (
+                <>
+                  <div className="grid grid-cols-2 gap-2">
                     <input
-                      type="checkbox"
-                      checked={visibleImportAllSchemas}
-                      onChange={(event) => {
-                        const checked = event.target.checked;
-                        setImportAllSchemas(checked);
-                        if (checked) {
-                          setSelectedImportSchemas(visibleImportSchemas);
-                        }
-                      }}
+                      value={importHost}
+                      onChange={(event) => setImportHost(event.target.value)}
+                      placeholder="Host"
+                      className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
                     />
-                    All schemas
-                  </label>
-                </div>
-                <div className="max-h-36 space-y-1 overflow-y-auto pr-1">
-                  {visibleImportSchemas.length === 0 ? (
-                    <p className="text-xs text-slate-500">
-                      No schemas loaded yet. Test connection first.
+                    <input
+                      value={importPort}
+                      onChange={(event) =>
+                        setImportPort(Number(event.target.value) || 5432)
+                      }
+                      placeholder="Port"
+                      type="number"
+                      className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                    />
+                    <input
+                      value={importDatabase}
+                      onChange={(event) =>
+                        setImportDatabase(event.target.value)
+                      }
+                      placeholder="Database"
+                      className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                    />
+                    <input
+                      value={importUser}
+                      onChange={(event) => setImportUser(event.target.value)}
+                      placeholder="Username"
+                      className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                    />
+                    <input
+                      value={importPassword}
+                      onChange={(event) =>
+                        setImportPassword(event.target.value)
+                      }
+                      placeholder="Password"
+                      type="password"
+                      className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                    />
+                    <select
+                      value={importSslMode}
+                      onChange={(event) => setImportSslMode(event.target.value)}
+                      className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
+                    >
+                      <option value="disable">SSL disable</option>
+                      <option value="prefer">SSL prefer</option>
+                      <option value="require">SSL require</option>
+                    </select>
+                  </div>
+
+                  <div className="rounded-md border border-slate-200 bg-slate-50 p-2 text-xs text-slate-700">
+                    <p className="font-semibold">Connection status</p>
+                    <p>
+                      {visibleConnectionCheckStatus === "success"
+                        ? visibleConnectionCheckMessage ||
+                          "Connection successful."
+                        : visibleConnectionCheckStatus === "failed"
+                          ? visibleConnectionCheckMessage ||
+                            "Connection failed."
+                          : "Run test connection first."}
                     </p>
-                  ) : (
-                    visibleImportSchemas.map((schema) => (
-                      <label
-                        key={schema}
-                        className="flex items-center gap-2 rounded px-2 py-1 text-sm hover:bg-slate-50"
-                      >
+                  </div>
+
+                  <div className="rounded-md border border-slate-200 p-2">
+                    <div className="mb-2 flex items-center justify-between">
+                      <p className="text-xs font-semibold text-slate-700">
+                        Schemas to import
+                      </p>
+                      <label className="inline-flex items-center gap-1 text-xs text-slate-600">
                         <input
                           type="checkbox"
-                          checked={
-                            visibleImportAllSchemas ||
-                            visibleSelectedImportSchemas.includes(schema)
-                          }
-                          disabled={visibleImportAllSchemas}
-                          onChange={() => toggleImportSchemaSelection(schema)}
+                          checked={visibleImportAllSchemas}
+                          onChange={(event) => {
+                            const checked = event.target.checked;
+                            setImportAllSchemas(checked);
+                            if (checked) {
+                              setSelectedImportSchemas(visibleImportSchemas);
+                            }
+                          }}
                         />
-                        <span>{schema}</span>
+                        All schemas
                       </label>
-                    ))
-                  )}
-                </div>
-              </div>
+                    </div>
+                    <div className="max-h-36 space-y-1 overflow-y-auto pr-1">
+                      {visibleImportSchemas.length === 0 ? (
+                        <p className="text-xs text-slate-500">
+                          No schemas loaded yet. Test connection first.
+                        </p>
+                      ) : (
+                        visibleImportSchemas.map((schema) => (
+                          <label
+                            key={schema}
+                            className="flex items-center gap-2 rounded px-2 py-1 text-sm hover:bg-slate-50"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={
+                                visibleImportAllSchemas ||
+                                visibleSelectedImportSchemas.includes(schema)
+                              }
+                              disabled={visibleImportAllSchemas}
+                              onChange={() =>
+                                toggleImportSchemaSelection(schema)
+                              }
+                            />
+                            <span>{schema}</span>
+                          </label>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </>
+              ) : importDialogTab === "upload" ? (
+                <>
+                  <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 text-center">
+                    <p className="text-sm font-semibold text-slate-700">
+                      Upload a `.sql` file
+                    </p>
+                    <p className="mt-1 text-xs text-slate-600">
+                      Supports PostgreSQL DDL and pg_dump schema output.
+                    </p>
+                    <label className="mt-3 inline-flex cursor-pointer rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100">
+                      Choose File
+                      <input
+                        type="file"
+                        accept=".sql,text/sql,application/sql"
+                        className="hidden"
+                        onChange={(event) => {
+                          const selectedFile = event.target.files?.[0] ?? null;
+                          setImportSqlFile(selectedFile);
+                        }}
+                      />
+                    </label>
+                    <p className="mt-2 text-xs text-slate-500">
+                      {importSqlFile
+                        ? `Selected: ${importSqlFile.name}`
+                        : "No file selected."}
+                    </p>
+                  </div>
+                  <div className="rounded-md border border-slate-200 bg-slate-50 p-2 text-xs text-slate-700">
+                    File import replaces the current diagram schema with parsed
+                    SQL tables and relationships.
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="text-xs font-semibold text-slate-600">
+                    Paste SQL DDL
+                  </p>
+                  <textarea
+                    value={importSqlText}
+                    onChange={(event) => setImportSqlText(event.target.value)}
+                    placeholder="Paste CREATE TABLE / ALTER TABLE statements here..."
+                    rows={12}
+                    className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-xs outline-none focus:border-blue-500"
+                  />
+                  <div className="rounded-md border border-slate-200 bg-slate-50 p-2 text-xs text-slate-700">
+                    Pasted SQL import replaces the current diagram schema with
+                    parsed tables and relationships.
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="mt-4 flex justify-between gap-2">
-              <button
-                type="button"
-                onClick={() => void testImportConnection()}
-                className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold hover:bg-slate-50"
-              >
-                Test Connection
-              </button>
+              {importDialogTab === "database" ? (
+                <button
+                  type="button"
+                  onClick={() => void testImportConnection()}
+                  className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold hover:bg-slate-50"
+                >
+                  Test Connection
+                </button>
+              ) : (
+                <span />
+              )}
               <div className="flex gap-2">
                 <button
                   type="button"
@@ -5627,7 +5799,17 @@ export function Dashboard({
                 </button>
                 <button
                   type="button"
-                  onClick={() => void importSchemaFromPostgres()}
+                  onClick={() => {
+                    if (importDialogTab === "database") {
+                      void importSchemaFromPostgres();
+                      return;
+                    }
+                    if (importDialogTab === "upload") {
+                      void importSchemaFromSqlFile();
+                      return;
+                    }
+                    void importSchemaFromSqlText();
+                  }}
                   className="rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700"
                 >
                   Import
