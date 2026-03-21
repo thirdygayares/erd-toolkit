@@ -43,6 +43,18 @@ class ColumnResponse(BaseModel):
     comment_text: str | None = None
 
 
+class IndexResponse(BaseModel):
+    index_id: str
+    table_id: UUID
+    index_name: str
+    method: str
+    is_unique: bool
+    comment_text: str | None = None
+    source: str = "user"
+    column_ids: list[UUID] = Field(default_factory=list)
+    column_names: list[str] = Field(default_factory=list)
+
+
 class CustomTypeResponse(BaseModel):
     custom_type_id: UUID
     diagram_id: UUID
@@ -67,6 +79,7 @@ class TableResponse(BaseModel):
     height: float | None
     color_hex: str | None
     columns: list[ColumnResponse]
+    indexes: list[IndexResponse] = Field(default_factory=list)
 
 
 class RelationshipResponse(BaseModel):

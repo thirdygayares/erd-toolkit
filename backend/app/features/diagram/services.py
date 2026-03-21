@@ -68,6 +68,19 @@ class DiagramService:
                     normalized.setdefault("comment_text", None)
                     columns.append(normalized)
 
+                cur.execute(sql.GET_INDEXES_BY_DIAGRAM, {"diagram_id": diagram_id})
+                raw_indexes = cur.fetchall()
+                indexes: list[dict] = []
+                for index in raw_indexes:
+                    normalized = dict(index)
+                    normalized["index_id"] = str(normalized.get("index_id", ""))
+                    normalized["method"] = str(normalized.get("method") or "btree").lower()
+                    normalized.setdefault("comment_text", None)
+                    normalized.setdefault("source", "user")
+                    normalized.setdefault("column_ids", [])
+                    normalized.setdefault("column_names", [])
+                    indexes.append(normalized)
+
                 cur.execute(sql.GET_RELATIONSHIPS, {"diagram_id": diagram_id})
                 relationships = cur.fetchall()
 
@@ -78,9 +91,19 @@ class DiagramService:
         for col in columns:
             columns_by_table[str(col["table_id"])].append(col)
 
+        indexes_by_table: dict[str, list[dict]] = defaultdict(list)
+        for index in indexes:
+            indexes_by_table[str(index["table_id"])].append(index)
+
         table_payload = []
         for table in tables:
-            table_payload.append({**table, "columns": columns_by_table.get(str(table["table_id"]), [])})
+            table_payload.append(
+                {
+                    **table,
+                    "columns": columns_by_table.get(str(table["table_id"]), []),
+                    "indexes": indexes_by_table.get(str(table["table_id"]), []),
+                }
+            )
 
         return {
             "diagram": diagram,

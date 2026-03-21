@@ -11,6 +11,9 @@ from app.features.schema_editor.schemas import (
     CustomTypeCreateRequest,
     CustomTypeResponse,
     CustomTypeUpdateRequest,
+    IndexCreateRequest,
+    IndexMutationResponse,
+    IndexUpdateRequest,
     RelationshipCreateRequest,
     RelationshipMutationResponse,
     RelationshipUpdateRequest,
@@ -97,6 +100,53 @@ def delete_column(
 ) -> ColumnMutationResponse:
     del diagram_id
     return ColumnMutationResponse(**service.delete_column(table_id, column_id, ctx))
+
+
+@router.post(
+    "/diagrams/{diagram_id}/tables/{table_id}/indexes",
+    response_model=IndexMutationResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_index(
+    diagram_id: str,
+    table_id: str,
+    payload: IndexCreateRequest,
+    ctx: RequestContext = Depends(get_request_context),
+    service: SchemaEditorService = Depends(get_schema_editor_service),
+) -> IndexMutationResponse:
+    del diagram_id
+    return IndexMutationResponse(**service.create_index(table_id, payload, ctx))
+
+
+@router.patch(
+    "/diagrams/{diagram_id}/tables/{table_id}/indexes/{index_id}",
+    response_model=IndexMutationResponse,
+)
+def update_index(
+    diagram_id: str,
+    table_id: str,
+    index_id: str,
+    payload: IndexUpdateRequest,
+    ctx: RequestContext = Depends(get_request_context),
+    service: SchemaEditorService = Depends(get_schema_editor_service),
+) -> IndexMutationResponse:
+    del diagram_id
+    return IndexMutationResponse(**service.update_index(table_id, index_id, payload, ctx))
+
+
+@router.delete(
+    "/diagrams/{diagram_id}/tables/{table_id}/indexes/{index_id}",
+    response_model=IndexMutationResponse,
+)
+def delete_index(
+    diagram_id: str,
+    table_id: str,
+    index_id: str,
+    ctx: RequestContext = Depends(get_request_context),
+    service: SchemaEditorService = Depends(get_schema_editor_service),
+) -> IndexMutationResponse:
+    del diagram_id
+    return IndexMutationResponse(**service.delete_index(table_id, index_id, ctx))
 
 
 @router.post(

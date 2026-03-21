@@ -94,6 +94,19 @@ class StubDiagramService:
                             "comment_text": "column description",
                         }
                     ],
+                    "indexes": [
+                        {
+                            "index_id": str(uuid4()),
+                            "table_id": table_id,
+                            "index_name": "users_id_idx",
+                            "method": "btree",
+                            "is_unique": True,
+                            "comment_text": "Primary key index",
+                            "source": "system_pk",
+                            "column_ids": [column_id],
+                            "column_names": ["id"],
+                        }
+                    ],
                 }
             ],
             "relationships": [],
@@ -153,6 +166,7 @@ def test_get_diagram_detail(client, app):
         == "column description"
     )
     assert response.json()["tables"][0]["columns"][0]["ui_width"] == 320
+    assert response.json()["tables"][0]["indexes"][0]["index_name"] == "users_id_idx"
     assert response.json()["custom_types"][0]["type_name"] == "order_status"
 
 

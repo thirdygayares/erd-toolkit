@@ -12,11 +12,17 @@ class _FakeCursor:
         tables: list[dict],
         relationships: list[dict],
         columns_by_table: dict[str, list[dict]],
+        indexes_by_table: dict[str, list[dict]] | list[dict] | None = None,
         custom_types: list[dict] | None = None,
     ):
+        if isinstance(indexes_by_table, list) and custom_types is None:
+            custom_types = indexes_by_table
+            indexes_by_table = None
+
         self._tables = tables
         self._relationships = relationships
         self._columns_by_table = columns_by_table
+        self._indexes_by_table = indexes_by_table or {}
         self._custom_types = custom_types or []
         self._last_query = ""
         self._last_params: dict = {}
@@ -41,6 +47,9 @@ class _FakeCursor:
         if "fn_export_get_columns" in self._last_query:
             table_id = str(self._last_params["table_id"])
             return self._columns_by_table.get(table_id, [])
+        if "fn_export_get_indexes_v1" in self._last_query:
+            table_id = str(self._last_params["table_id"])
+            return self._indexes_by_table.get(table_id, [])
         return []
 
 
@@ -50,11 +59,17 @@ class _FakeConnection:
         tables: list[dict],
         relationships: list[dict],
         columns_by_table: dict[str, list[dict]],
+        indexes_by_table: dict[str, list[dict]] | list[dict] | None = None,
         custom_types: list[dict] | None = None,
     ):
+        if isinstance(indexes_by_table, list) and custom_types is None:
+            custom_types = indexes_by_table
+            indexes_by_table = None
+
         self._tables = tables
         self._relationships = relationships
         self._columns_by_table = columns_by_table
+        self._indexes_by_table = indexes_by_table or {}
         self._custom_types = custom_types or []
 
     def cursor(self):
@@ -62,6 +77,7 @@ class _FakeConnection:
             self._tables,
             self._relationships,
             self._columns_by_table,
+            self._indexes_by_table,
             self._custom_types,
         )
 
@@ -210,6 +226,63 @@ def test_generate_sql_falls_back_to_table_name_when_display_name_collides():
     assert "CREATE TABLE IF NOT EXISTS public.users_a" in sql_output
     assert "CREATE TABLE IF NOT EXISTS public.users_b" in sql_output
     assert "CREATE TABLE IF NOT EXISTS public.users (" not in sql_output
+
+
+def test_generate_sql_renders_user_indexes():
+    table_id = str(uuid4())
+    column_id = str(uuid4())
+    index_id = str(uuid4())
+
+    tables = [
+        {
+            "table_id": table_id,
+            "schema_name": "public",
+            "table_name": "customers",
+            "display_name": "Customers",
+        }
+    ]
+    columns_by_table = {
+        table_id: [
+            {
+                "column_id": column_id,
+                "table_id": table_id,
+                "column_name": "customer_id",
+                "data_type": "uuid",
+                "udt_name": None,
+                "default_sql": None,
+                "is_nullable": False,
+                "is_primary_key": True,
+                "is_unique": True,
+            }
+        ]
+    }
+    indexes_by_table = {
+        table_id: [
+            {
+                "index_id": index_id,
+                "table_id": table_id,
+                "index_name": "customers_customer_id_idx",
+                "method": "btree",
+                "is_unique": False,
+                "comment_text": "lookup",
+                "source": "user",
+                "column_ids": [column_id],
+                "column_names": ["customer_id"],
+            }
+        ]
+    }
+
+    service = ExportService(db=None)  # type: ignore[arg-type]
+    conn = _FakeConnection(tables, [], columns_by_table, indexes_by_table)
+
+    sql_output, statement_count = service._generate_sql(conn, str(uuid4()), "public")
+
+    assert statement_count == 3
+    assert "DROP INDEX IF EXISTS public.customers_customer_id_idx;" in sql_output
+    assert (
+        "CREATE INDEX customers_customer_id_idx ON public.customers USING btree (customer_id);"
+        in sql_output
+    )
 
 
 def test_generate_sql_keeps_identity_clause_without_default_for_integer_types():

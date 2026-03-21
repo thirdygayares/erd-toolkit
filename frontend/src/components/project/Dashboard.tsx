@@ -56,13 +56,16 @@ import { useGetProjectQuery } from "@/hooks/project/useGetProjectQuery";
 import { useUpdateProjectVisibilityMutation } from "@/hooks/project/useUpdateProjectVisibilityMutation";
 import { useCreateColumnMutation } from "@/hooks/schemaEditor/useCreateColumnMutation";
 import { useCreateCustomTypeMutation } from "@/hooks/schemaEditor/useCreateCustomTypeMutation";
+import { useCreateIndexMutation } from "@/hooks/schemaEditor/useCreateIndexMutation";
 import { useCreateRelationshipMutation } from "@/hooks/schemaEditor/useCreateRelationshipMutation";
 import { useCreateTableMutation } from "@/hooks/schemaEditor/useCreateTableMutation";
 import { useDeleteColumnMutation } from "@/hooks/schemaEditor/useDeleteColumnMutation";
 import { useDeleteCustomTypeMutation } from "@/hooks/schemaEditor/useDeleteCustomTypeMutation";
+import { useDeleteIndexMutation } from "@/hooks/schemaEditor/useDeleteIndexMutation";
 import { useDeleteRelationshipMutation } from "@/hooks/schemaEditor/useDeleteRelationshipMutation";
 import { useUpdateColumnMutation } from "@/hooks/schemaEditor/useUpdateColumnMutation";
 import { useUpdateCustomTypeMutation } from "@/hooks/schemaEditor/useUpdateCustomTypeMutation";
+import { useUpdateIndexMutation } from "@/hooks/schemaEditor/useUpdateIndexMutation";
 import { useUpdateRelationshipMutation } from "@/hooks/schemaEditor/useUpdateRelationshipMutation";
 import { useUpdateTableMutation } from "@/hooks/schemaEditor/useUpdateTableMutation";
 import { useListWorkspacesQuery } from "@/hooks/workspace/useListWorkspacesQuery";
@@ -77,6 +80,7 @@ import type {
   DiagramDetailResponse,
   DictionaryExportFileType,
   DictionaryExportLayout,
+  IndexMutationResponse,
   PostgresConnectionRequest,
   TableResponse,
 } from "@/lib/types";
@@ -121,6 +125,14 @@ const postgresTypeOptions = [
   "jsonb",
   "bytea",
 ];
+const indexMethodOptions = [
+  "btree",
+  "hash",
+  "gin",
+  "gist",
+  "brin",
+  "spgist",
+] as const;
 
 const dialogFieldIdPrefix = "dialog-field-";
 const emptyTables: TableResponse[] = [];
@@ -205,6 +217,18 @@ interface FieldAttributesDraft {
   example: string;
   comments: string;
   baseType: string;
+}
+
+interface IndexEditorDraft {
+  tableId: string;
+  mode: "create" | "edit";
+  indexId: string | null;
+  indexName: string;
+  method: (typeof indexMethodOptions)[number];
+  isUnique: boolean;
+  commentText: string;
+  selectedColumnIds: string[];
+  columnSearch: string;
 }
 
 interface CustomTypeEditorState {
@@ -359,6 +383,51 @@ function findColumn(
   return table.columns.find((column) => column.column_id === columnId) ?? null;
 }
 
+function quoteIdentifier(identifier: string) {
+  if (/^[a-z_][a-z0-9_]*$/i.test(identifier)) {
+    return identifier;
+  }
+  return `"${identifier.replace(/"/g, '""')}"`;
+}
+
+function sortIndexes(indexes: IndexMutationResponse[]) {
+  return [...indexes].sort((left, right) => {
+    const sourceOrder =
+      left.source === right.source ? 0 : left.source === "user" ? -1 : 1;
+    if (sourceOrder !== 0) {
+      return sourceOrder;
+    }
+    return left.index_name.localeCompare(right.index_name);
+  });
+}
+
+function buildIndexSqlPreview(
+  table: TableResponse,
+  draft: Pick<
+    IndexEditorDraft,
+    "indexName" | "method" | "isUnique" | "selectedColumnIds"
+  >,
+) {
+  const orderedColumns = draft.selectedColumnIds
+    .map((columnId) =>
+      table.columns.find((column) => column.column_id === columnId),
+    )
+    .filter((column): column is ColumnResponse => Boolean(column));
+
+  if (!draft.indexName.trim() || orderedColumns.length === 0) {
+    return "-- Add index name and at least one column";
+  }
+
+  const uniqueClause = draft.isUnique ? "UNIQUE " : "";
+  const renderedColumns = orderedColumns
+    .map((column) => quoteIdentifier(column.column_name))
+    .join(", ");
+
+  return `CREATE ${uniqueClause}INDEX ${quoteIdentifier(draft.indexName.trim())}
+ON ${quoteIdentifier(table.schema_name)}.${quoteIdentifier(table.table_name)}
+USING ${draft.method} (${renderedColumns});`;
+}
+
 export function Dashboard({
   projectId,
   initialShareSlug,
@@ -432,6 +501,8 @@ export function Dashboard({
 
   const [fieldAttributesDraft, setFieldAttributesDraft] =
     useState<FieldAttributesDraft | null>(null);
+  const [indexEditorDraft, setIndexEditorDraft] =
+    useState<IndexEditorDraft | null>(null);
 
   const [tableComments, setTableComments] = useState<Record<string, string>>(
     {},
@@ -555,6 +626,9 @@ export function Dashboard({
   const createColumnMutation = useCreateColumnMutation();
   const deleteColumnMutation = useDeleteColumnMutation();
   const updateColumnMutation = useUpdateColumnMutation();
+  const createIndexMutation = useCreateIndexMutation();
+  const updateIndexMutation = useUpdateIndexMutation();
+  const deleteIndexMutation = useDeleteIndexMutation();
   const createCustomTypeMutation = useCreateCustomTypeMutation();
   const updateCustomTypeMutation = useUpdateCustomTypeMutation();
   const deleteCustomTypeMutation = useDeleteCustomTypeMutation();
@@ -899,6 +973,36 @@ export function Dashboard({
       setSelectedColumnId(selectedTable.columns[0].column_id);
     }
   }, [selectedTable, selectedColumnId]);
+
+  useEffect(() => {
+    if (!indexEditorDraft) {
+      return;
+    }
+
+    const table = tables.find(
+      (item) => item.table_id === indexEditorDraft.tableId,
+    );
+    if (!table) {
+      setIndexEditorDraft(null);
+      return;
+    }
+
+    const validColumnIds = indexEditorDraft.selectedColumnIds.filter(
+      (columnId) =>
+        table.columns.some((column) => column.column_id === columnId),
+    );
+
+    if (validColumnIds.length !== indexEditorDraft.selectedColumnIds.length) {
+      setIndexEditorDraft((current) =>
+        current
+          ? {
+              ...current,
+              selectedColumnIds: validColumnIds,
+            }
+          : current,
+      );
+    }
+  }, [indexEditorDraft, tables]);
 
   useEffect(() => {
     if (!selectedTable) {
@@ -1847,6 +1951,208 @@ export function Dashboard({
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Unable to delete column.";
+      setStatusMessage(message);
+    }
+  }
+
+  function openCreateIndexEditor(table: TableResponse) {
+    const firstPrimaryKeyColumnId =
+      table.columns.find((column) => column.is_primary_key)?.column_id ?? "";
+    const firstColumnId = table.columns[0]?.column_id ?? "";
+    const initialColumnId = firstPrimaryKeyColumnId || firstColumnId;
+
+    setIndexEditorDraft({
+      tableId: table.table_id,
+      mode: "create",
+      indexId: null,
+      indexName: `${table.table_name}_idx`,
+      method: "btree",
+      isUnique: false,
+      commentText: "",
+      selectedColumnIds: initialColumnId ? [initialColumnId] : [],
+      columnSearch: "",
+    });
+  }
+
+  function openEditIndexEditor(
+    table: TableResponse,
+    index: IndexMutationResponse,
+  ) {
+    if (index.source !== "user") {
+      setStatusMessage("System indexes are read-only.");
+      return;
+    }
+
+    setIndexEditorDraft({
+      tableId: table.table_id,
+      mode: "edit",
+      indexId: index.index_id,
+      indexName: index.index_name,
+      method: index.method,
+      isUnique: index.is_unique,
+      commentText: index.comment_text ?? "",
+      selectedColumnIds: [...index.column_ids],
+      columnSearch: "",
+    });
+  }
+
+  function closeIndexEditor(tableId?: string) {
+    setIndexEditorDraft((current) => {
+      if (!current) {
+        return current;
+      }
+      if (tableId && current.tableId !== tableId) {
+        return current;
+      }
+      return null;
+    });
+  }
+
+  function patchIndexEditorDraft(patch: Partial<IndexEditorDraft>) {
+    setIndexEditorDraft((current) => {
+      if (!current) {
+        return current;
+      }
+      return { ...current, ...patch };
+    });
+  }
+
+  function toggleIndexColumnSelection(columnId: string) {
+    setIndexEditorDraft((current) => {
+      if (!current) {
+        return current;
+      }
+
+      const exists = current.selectedColumnIds.includes(columnId);
+      if (exists) {
+        return {
+          ...current,
+          selectedColumnIds: current.selectedColumnIds.filter(
+            (id) => id !== columnId,
+          ),
+        };
+      }
+
+      return {
+        ...current,
+        selectedColumnIds: [...current.selectedColumnIds, columnId],
+      };
+    });
+  }
+
+  function moveSelectedIndexColumn(columnId: string, direction: "up" | "down") {
+    setIndexEditorDraft((current) => {
+      if (!current) {
+        return current;
+      }
+      const index = current.selectedColumnIds.indexOf(columnId);
+      if (index < 0) {
+        return current;
+      }
+      const targetIndex = direction === "up" ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= current.selectedColumnIds.length) {
+        return current;
+      }
+      const nextColumnIds = [...current.selectedColumnIds];
+      const [moved] = nextColumnIds.splice(index, 1);
+      nextColumnIds.splice(targetIndex, 0, moved);
+      return {
+        ...current,
+        selectedColumnIds: nextColumnIds,
+      };
+    });
+  }
+
+  async function saveIndexEditorDraft() {
+    if (!diagramId || !indexEditorDraft) {
+      return;
+    }
+
+    const table = tables.find(
+      (item) => item.table_id === indexEditorDraft.tableId,
+    );
+    if (!table) {
+      return;
+    }
+
+    const indexName = indexEditorDraft.indexName.trim();
+    if (!indexName) {
+      setStatusMessage("Index name is required.");
+      return;
+    }
+
+    const selectedColumnIds = indexEditorDraft.selectedColumnIds.filter(
+      (columnId) =>
+        table.columns.some((column) => column.column_id === columnId),
+    );
+    if (selectedColumnIds.length === 0) {
+      setStatusMessage("Select at least one column for the index.");
+      return;
+    }
+
+    try {
+      if (indexEditorDraft.mode === "create") {
+        const created = await createIndexMutation.mutateAsync({
+          diagramId,
+          tableId: table.table_id,
+          payload: {
+            index_name: indexName,
+            method: indexEditorDraft.method,
+            is_unique: indexEditorDraft.isUnique,
+            comment_text: indexEditorDraft.commentText.trim() || null,
+            column_ids: selectedColumnIds,
+          },
+        });
+        setStatusMessage(`Index created: ${created.index_name}`);
+      } else if (indexEditorDraft.indexId) {
+        const updated = await updateIndexMutation.mutateAsync({
+          diagramId,
+          tableId: table.table_id,
+          indexId: indexEditorDraft.indexId,
+          payload: {
+            index_name: indexName,
+            method: indexEditorDraft.method,
+            is_unique: indexEditorDraft.isUnique,
+            comment_text: indexEditorDraft.commentText.trim() || null,
+            column_ids: selectedColumnIds,
+          },
+        });
+        setStatusMessage(`Index updated: ${updated.index_name}`);
+      }
+
+      setIndexEditorDraft(null);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to save index.";
+      setStatusMessage(message);
+    }
+  }
+
+  async function deleteIndexFromTable(
+    table: TableResponse,
+    index: IndexMutationResponse,
+  ) {
+    if (!diagramId) {
+      return;
+    }
+    if (index.source !== "user") {
+      setStatusMessage("System indexes are read-only.");
+      return;
+    }
+
+    try {
+      await deleteIndexMutation.mutateAsync({
+        diagramId,
+        tableId: table.table_id,
+        indexId: index.index_id,
+      });
+      if (indexEditorDraft?.indexId === index.index_id) {
+        setIndexEditorDraft(null);
+      }
+      setStatusMessage(`Index deleted: ${index.index_name}`);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to delete index.";
       setStatusMessage(message);
     }
   }
@@ -3471,6 +3777,25 @@ export function Dashboard({
                           dataType: "text",
                           isNullable: true,
                         };
+                        const sortedTableIndexes = sortIndexes(
+                          table.indexes ?? [],
+                        );
+                        const isEditingIndexForTable =
+                          indexEditorDraft?.tableId === table.table_id;
+                        const filteredIndexColumns = isEditingIndexForTable
+                          ? table.columns.filter((column) => {
+                              const keyword =
+                                indexEditorDraft?.columnSearch
+                                  .trim()
+                                  .toLowerCase() ?? "";
+                              if (!keyword) {
+                                return true;
+                              }
+                              return column.column_name
+                                .toLowerCase()
+                                .includes(keyword);
+                            })
+                          : table.columns;
 
                         return (
                           <div
@@ -3764,6 +4089,304 @@ export function Dashboard({
                                         ↵
                                       </div>
                                     </div>
+                                    <div className="mt-2 rounded-md border border-slate-200 p-1.5">
+                                      <div className="mb-1 flex items-center justify-between gap-2">
+                                        <div className="text-xs font-semibold text-slate-700">
+                                          Indexes
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            openCreateIndexEditor(table)
+                                          }
+                                          className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-1.5 py-0.5 text-[11px] font-semibold hover:bg-slate-50"
+                                        >
+                                          <Plus className="h-3 w-3" />
+                                          Add Index
+                                        </button>
+                                      </div>
+
+                                      <div className="space-y-1">
+                                        {sortedTableIndexes.length === 0 ? (
+                                          <p className="rounded-md border border-dashed border-slate-300 px-2 py-1 text-[11px] text-slate-500">
+                                            No indexes yet.
+                                          </p>
+                                        ) : (
+                                          sortedTableIndexes.map((index) => (
+                                            <div
+                                              key={index.index_id}
+                                              className="flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1"
+                                            >
+                                              <div className="min-w-0 flex-1">
+                                                <p className="truncate text-[11px] font-semibold text-slate-700">
+                                                  {index.index_name}
+                                                </p>
+                                                <p className="truncate text-[10px] text-slate-500">
+                                                  {(
+                                                    index.column_names ?? []
+                                                  ).join(", ") ||
+                                                    "no columns"}{" "}
+                                                  • {index.method}
+                                                  {index.is_unique
+                                                    ? " • unique"
+                                                    : ""}
+                                                </p>
+                                              </div>
+                                              {index.source === "user" ? (
+                                                <>
+                                                  <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                      openEditIndexEditor(
+                                                        table,
+                                                        index,
+                                                      )
+                                                    }
+                                                    className="rounded p-1 text-slate-500 hover:bg-slate-200"
+                                                    title="Edit index"
+                                                  >
+                                                    <Pencil className="h-3 w-3" />
+                                                  </button>
+                                                  <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                      void deleteIndexFromTable(
+                                                        table,
+                                                        index,
+                                                      )
+                                                    }
+                                                    className="rounded p-1 text-red-600 hover:bg-red-100"
+                                                    title="Delete index"
+                                                  >
+                                                    <Trash2 className="h-3 w-3" />
+                                                  </button>
+                                                </>
+                                              ) : (
+                                                <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+                                                  System
+                                                </span>
+                                              )}
+                                            </div>
+                                          ))
+                                        )}
+                                      </div>
+
+                                      {isEditingIndexForTable &&
+                                      indexEditorDraft ? (
+                                        <div className="mt-2 space-y-1.5 rounded-md border border-blue-200 bg-blue-50/40 p-2">
+                                          <div className="text-[11px] font-semibold text-slate-700">
+                                            {indexEditorDraft.mode === "create"
+                                              ? "Create Index"
+                                              : "Edit Index"}
+                                          </div>
+
+                                          <input
+                                            value={indexEditorDraft.indexName}
+                                            onChange={(event) =>
+                                              patchIndexEditorDraft({
+                                                indexName: event.target.value,
+                                              })
+                                            }
+                                            placeholder="index_name"
+                                            className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs outline-none focus:border-blue-500"
+                                          />
+
+                                          <div className="grid grid-cols-[1fr_auto] gap-1">
+                                            <select
+                                              value={indexEditorDraft.method}
+                                              onChange={(event) =>
+                                                patchIndexEditorDraft({
+                                                  method: event.target
+                                                    .value as (typeof indexMethodOptions)[number],
+                                                })
+                                              }
+                                              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs outline-none focus:border-blue-500"
+                                            >
+                                              {indexMethodOptions.map(
+                                                (method) => (
+                                                  <option
+                                                    key={method}
+                                                    value={method}
+                                                  >
+                                                    {method}
+                                                  </option>
+                                                ),
+                                              )}
+                                            </select>
+                                            <label className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-600">
+                                              <input
+                                                type="checkbox"
+                                                checked={
+                                                  indexEditorDraft.isUnique
+                                                }
+                                                onChange={(event) =>
+                                                  patchIndexEditorDraft({
+                                                    isUnique:
+                                                      event.target.checked,
+                                                  })
+                                                }
+                                                className="h-3.5 w-3.5"
+                                              />
+                                              Unique
+                                            </label>
+                                          </div>
+
+                                          <input
+                                            value={
+                                              indexEditorDraft.columnSearch
+                                            }
+                                            onChange={(event) =>
+                                              patchIndexEditorDraft({
+                                                columnSearch:
+                                                  event.target.value,
+                                              })
+                                            }
+                                            placeholder="Search columns..."
+                                            className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs outline-none focus:border-blue-500"
+                                          />
+
+                                          <div className="max-h-24 space-y-1 overflow-y-auto rounded-md border border-slate-200 bg-white p-1">
+                                            {filteredIndexColumns.map(
+                                              (column) => {
+                                                const isChecked =
+                                                  indexEditorDraft.selectedColumnIds.includes(
+                                                    column.column_id,
+                                                  );
+                                                return (
+                                                  <label
+                                                    key={`${table.table_id}-${column.column_id}`}
+                                                    className="flex items-center gap-2 rounded px-1 py-0.5 text-[11px] text-slate-700 hover:bg-slate-100"
+                                                  >
+                                                    <input
+                                                      type="checkbox"
+                                                      checked={isChecked}
+                                                      onChange={() =>
+                                                        toggleIndexColumnSelection(
+                                                          column.column_id,
+                                                        )
+                                                      }
+                                                      className="h-3.5 w-3.5"
+                                                    />
+                                                    <span className="truncate">
+                                                      {column.column_name}
+                                                    </span>
+                                                  </label>
+                                                );
+                                              },
+                                            )}
+                                          </div>
+
+                                          <div className="space-y-1 rounded-md border border-slate-200 bg-white p-1">
+                                            <p className="text-[10px] font-semibold text-slate-500 uppercase">
+                                              Selected Order
+                                            </p>
+                                            {indexEditorDraft.selectedColumnIds
+                                              .length === 0 ? (
+                                              <p className="text-[10px] text-slate-500">
+                                                Select at least one column.
+                                              </p>
+                                            ) : (
+                                              indexEditorDraft.selectedColumnIds.map(
+                                                (columnId, indexPosition) => {
+                                                  const columnName =
+                                                    table.columns.find(
+                                                      (column) =>
+                                                        column.column_id ===
+                                                        columnId,
+                                                    )?.column_name ?? columnId;
+                                                  return (
+                                                    <div
+                                                      key={columnId}
+                                                      className="flex items-center justify-between gap-1 rounded border border-slate-200 px-1 py-0.5 text-[10px] text-slate-600"
+                                                    >
+                                                      <span className="truncate">
+                                                        {columnName}
+                                                      </span>
+                                                      <div className="flex items-center gap-0.5">
+                                                        <button
+                                                          type="button"
+                                                          onClick={() =>
+                                                            moveSelectedIndexColumn(
+                                                              columnId,
+                                                              "up",
+                                                            )
+                                                          }
+                                                          disabled={
+                                                            indexPosition === 0
+                                                          }
+                                                          className="rounded border border-slate-300 p-0.5 disabled:opacity-40"
+                                                        >
+                                                          <ArrowUp className="h-3 w-3" />
+                                                        </button>
+                                                        <button
+                                                          type="button"
+                                                          onClick={() =>
+                                                            moveSelectedIndexColumn(
+                                                              columnId,
+                                                              "down",
+                                                            )
+                                                          }
+                                                          disabled={
+                                                            indexPosition ===
+                                                            indexEditorDraft
+                                                              .selectedColumnIds
+                                                              .length -
+                                                              1
+                                                          }
+                                                          className="rounded border border-slate-300 p-0.5 disabled:opacity-40"
+                                                        >
+                                                          <ArrowDown className="h-3 w-3" />
+                                                        </button>
+                                                      </div>
+                                                    </div>
+                                                  );
+                                                },
+                                              )
+                                            )}
+                                          </div>
+
+                                          <textarea
+                                            value={indexEditorDraft.commentText}
+                                            onChange={(event) =>
+                                              patchIndexEditorDraft({
+                                                commentText: event.target.value,
+                                              })
+                                            }
+                                            placeholder="Index comment (optional)"
+                                            className="h-12 w-full rounded-md border border-slate-300 p-1.5 text-xs outline-none focus:border-blue-500"
+                                          />
+
+                                          <pre className="overflow-x-auto rounded-md border border-slate-200 bg-slate-900 p-2 text-[10px] text-slate-100">
+                                            {buildIndexSqlPreview(
+                                              table,
+                                              indexEditorDraft,
+                                            )}
+                                          </pre>
+
+                                          <div className="flex justify-end gap-1">
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                closeIndexEditor(table.table_id)
+                                              }
+                                              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
+                                            >
+                                              Cancel
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                void saveIndexEditorDraft()
+                                              }
+                                              className="rounded-md bg-slate-900 px-2 py-1 text-[11px] font-semibold text-white hover:bg-slate-700"
+                                            >
+                                              Save Index
+                                            </button>
+                                          </div>
+                                        </div>
+                                      ) : null}
+                                    </div>
+
                                     <div className="pt-0.5">
                                       <div className="mb-1 text-xs font-semibold text-slate-600">
                                         Comments
@@ -4096,6 +4719,23 @@ export function Dashboard({
                                   >
                                     <Link2 className="h-3.5 w-3.5" />
                                     Relation
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSidebarMode("tables");
+                                      setSelectedTableId(table.table_id);
+                                      setExpandedTables((current) => ({
+                                        ...current,
+                                        [table.table_id]: true,
+                                      }));
+                                      openCreateIndexEditor(table);
+                                      setOpenTableActionsMenuId(null);
+                                    }}
+                                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs font-medium text-slate-700 hover:bg-slate-100"
+                                  >
+                                    <Database className="h-3.5 w-3.5" />
+                                    New Index
                                   </button>
                                   <button
                                     type="button"

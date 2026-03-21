@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
@@ -104,6 +105,51 @@ class ColumnMutationResponse(BaseModel):
     comment_text: str | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class IndexCreateRequest(BaseModel):
+    index_name: str = Field(min_length=1, max_length=63)
+    method: str = Field(default="btree", min_length=1, max_length=16)
+    is_unique: bool = False
+    comment_text: str | None = None
+    column_ids: list[UUID] = Field(min_length=1)
+
+    @field_validator("index_name")
+    @classmethod
+    def _validate_index_name(cls, value: str) -> str:
+        return _normalize_required_text(value)
+
+    @field_validator("method")
+    @classmethod
+    def _validate_index_method(cls, value: str) -> str:
+        normalized = _normalize_required_text(value).lower()
+        allowed = {"btree", "hash", "gin", "gist", "brin", "spgist"}
+        if normalized not in allowed:
+            raise ValueError("method must be one of: btree, hash, gin, gist, brin, spgist")
+        return normalized
+
+    @field_validator("column_ids")
+    @classmethod
+    def _validate_column_ids(cls, values: list[UUID]) -> list[UUID]:
+        if len(set(values)) != len(values):
+            raise ValueError("column_ids must be unique")
+        return values
+
+
+class IndexUpdateRequest(IndexCreateRequest):
+    pass
+
+
+class IndexMutationResponse(BaseModel):
+    index_id: str
+    table_id: UUID
+    index_name: str
+    method: str
+    is_unique: bool
+    comment_text: str | None = None
+    source: Literal["user", "system_pk", "system_unique_constraint"] = "user"
+    column_ids: list[UUID] = Field(default_factory=list)
+    column_names: list[str] = Field(default_factory=list)
 
 
 class CustomTypeCreateRequest(BaseModel):

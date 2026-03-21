@@ -209,3 +209,36 @@ FROM api.fn_relationship_delete(
     p_relationship_id => %(relationship_id)s::uuid
 );
 """
+
+INSERT_INDEX = """
+SELECT *
+FROM api.fn_index_create(
+    p_table_id => %(table_id)s::uuid,
+    p_index_name => %(index_name)s::text,
+    p_method => %(method)s::text,
+    p_is_unique => %(is_unique)s::boolean,
+    p_comment_text => %(comment_text)s::text,
+    p_column_ids => %(column_ids)s::uuid[]
+);
+"""
+
+UPDATE_INDEX = """
+SELECT *
+FROM api.fn_index_update(
+    p_table_id => %(table_id)s::uuid,
+    p_index_id => %(index_id)s::uuid,
+    p_index_name => %(index_name)s::text,
+    p_method => %(method)s::text,
+    p_is_unique => %(is_unique)s::boolean,
+    p_comment_text => %(comment_text)s::text,
+    p_column_ids => %(column_ids)s::uuid[]
+);
+"""
+
+DELETE_INDEX = """
+SELECT *
+FROM api.fn_index_delete(
+    p_table_id => %(table_id)s::uuid,
+    p_index_id => %(index_id)s::uuid
+);
+"""
