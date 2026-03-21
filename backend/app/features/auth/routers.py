@@ -79,11 +79,15 @@ def login_email(
 
 @router.get("/session", response_model=AuthStatusResponse)
 def get_session(
+    request: Request,
     ctx: RequestContext = Depends(get_request_context),
     service: AuthService = Depends(get_auth_service),
 ) -> AuthStatusResponse:
     user = service.get_current_user(ctx)
-    return AuthStatusResponse(user=AuthUserResponse(**user))
+    return AuthStatusResponse(
+        user=AuthUserResponse(**user),
+        csrf_token=request.cookies.get(CSRF_COOKIE_NAME),
+    )
 
 
 @router.post("/refresh", response_model=AuthSessionResponse)

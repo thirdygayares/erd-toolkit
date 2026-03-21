@@ -1,6 +1,10 @@
 import axios, { type InternalAxiosRequestConfig } from "axios";
 
-import { getBrowserCookie, getStoredShareSlug } from "@/lib/authStorage";
+import {
+  getBrowserCookie,
+  getStoredCsrfToken,
+  getStoredShareSlug,
+} from "@/lib/authStorage";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ??
@@ -23,7 +27,7 @@ axiosInstance.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   }
 
   const shareSlug = getStoredShareSlug();
-  const csrfToken = getBrowserCookie("erd_csrf_token");
+  const csrfToken = getBrowserCookie("erd_csrf_token") ?? getStoredCsrfToken();
 
   if (shareSlug) {
     config.headers.set("X-Share-Slug", shareSlug);

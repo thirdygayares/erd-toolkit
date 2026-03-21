@@ -4,6 +4,7 @@ import { Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { useSessionProvider } from "@/components/providers/SessionProvider";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Card,
@@ -12,10 +13,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { useAuthSessionQuery } from "@/hooks/auth/useAuthSessionQuery";
 import { useLogoutMutation } from "@/hooks/auth/useLogoutMutation";
-import { useRefreshSessionMutation } from "@/hooks/auth/useRefreshSessionMutation";
-import { getBrowserCookie, getStoredProjectContext } from "@/lib/authStorage";
+import { getStoredProjectContext } from "@/lib/authStorage";
 import { cn } from "@/lib/utils";
 import { OAuthButtonGroup } from "../auth/OAuthButtonGroup";
 import { ProjectBootstrap } from "../project/ProjectBootstrap";
@@ -33,12 +32,14 @@ type BootstrapChoice = "guest" | "personal" | null;
 export function LandingPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const canReadCsrfCookie = Boolean(getBrowserCookie("erd_csrf_token"));
-  const sessionQuery = useAuthSessionQuery();
-  const refreshSessionMutation = useRefreshSessionMutation();
+  const {
+    recoveryReason,
+    recoveryMessage,
+    sessionQuery,
+    isSessionUnauthorized,
+  } = useSessionProvider();
   const logoutMutation = useLogoutMutation();
   const [bootstrapChoice, setBootstrapChoice] = useState<BootstrapChoice>(null);
-  const [refreshAttempted, setRefreshAttempted] = useState(false);
   const [showAuthCard, setShowAuthCard] = useState(false);
 
   const storedContext = useMemo(() => getStoredProjectContext(), []);
@@ -50,22 +51,6 @@ export function LandingPage() {
     }
     router.replace(`/share/${shareSlug}`);
   }, [router, shareSlug]);
-
-  useEffect(() => {
-    if (!canReadCsrfCookie || !sessionQuery.isError || refreshAttempted) {
-      return;
-    }
-    setRefreshAttempted(true);
-    refreshSessionMutation
-      .mutateAsync()
-      .then(() => sessionQuery.refetch())
-      .catch(() => undefined);
-  }, [
-    canReadCsrfCookie,
-    refreshAttempted,
-    refreshSessionMutation,
-    sessionQuery,
-  ]);
 
   if (bootstrapChoice === "guest") {
     return (
@@ -81,6 +66,8 @@ export function LandingPage() {
 
   const user = sessionQuery.data?.user ?? null;
   const isAuthenticated = Boolean(user);
+  const showSessionNotice =
+    !isAuthenticated && (recoveryReason || isSessionUnauthorized);
 
   const handleGuestClick = () => {
     if (isAuthenticated) {
@@ -116,6 +103,18 @@ export function LandingPage() {
         onGuestClick={handleGuestClick}
         onWorkspaceClick={handleWorkspaceClick}
       />
+
+      {showSessionNotice ? (
+        <section className="mx-auto mt-6 w-full max-w-4xl px-4 sm:px-6">
+          <div className="rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-900">
+            <p className="font-medium">Session expired</p>
+            <p className="mt-1">
+              {recoveryMessage ??
+                "Sign in again to continue with your private workspace."}
+            </p>
+          </div>
+        </section>
+      ) : null}
 
       <WhySection />
       <FeaturesSection />

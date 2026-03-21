@@ -58,10 +58,12 @@ class AuthSessionResponse(BaseModel):
     session_id: UUID
     access_token_expires_at: datetime
     refresh_token_expires_at: datetime
+    csrf_token: str | None = None
 
 
 class AuthStatusResponse(BaseModel):
     user: AuthUserResponse
+    csrf_token: str | None = None
 
 
 class OAuthStartResponse(BaseModel):

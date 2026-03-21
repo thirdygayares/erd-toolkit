@@ -7,6 +7,10 @@ export const authStorageKeys = {
   shareSlug: "ERD_SHARE_SLUG",
 } as const;
 
+const authSessionStorageKeys = {
+  csrfToken: "ERD_CSRF_TOKEN",
+} as const;
+
 export interface StoredProjectContext {
   workspaceId: string | null;
   projectId: string | null;
@@ -86,6 +90,14 @@ export function getStoredShareSlug(): string | null {
 
 export function getStoredProjectId(): string | null {
   return getStorageValue(authStorageKeys.projectId);
+}
+
+export function setStoredCsrfToken(token: string | null | undefined) {
+  setStorageValue(authSessionStorageKeys.csrfToken, token);
+}
+
+export function getStoredCsrfToken(): string | null {
+  return getStorageValue(authSessionStorageKeys.csrfToken);
 }
 
 export function getBrowserCookie(cookieName: string): string | null {

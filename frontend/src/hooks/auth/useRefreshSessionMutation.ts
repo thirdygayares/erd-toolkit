@@ -2,6 +2,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
+import { setStoredCsrfToken } from "@/lib/authStorage";
 import { queryKeys } from "@/lib/queryKeys";
 import { AuthService } from "@/services/authService";
 
@@ -13,8 +14,10 @@ export function useRefreshSessionMutation() {
   return useMutation({
     mutationFn: () => authService.refreshSession(),
     onSuccess: (session) => {
+      setStoredCsrfToken(session.csrf_token ?? null);
       queryClient.setQueryData(queryKeys.auth.session(), {
         user: session.user,
+        csrf_token: session.csrf_token ?? null,
       });
     },
   });
