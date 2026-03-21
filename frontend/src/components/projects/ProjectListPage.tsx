@@ -11,6 +11,7 @@ import {
   Plus,
   Search,
 } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -264,15 +265,28 @@ export function ProjectListPage() {
               </p>
             </div>
 
-            <Button
-              className="gap-2"
-              disabled={logoutMutation.isPending}
-              onClick={handleLogout}
-              variant="outline"
-            >
-              <LogOut className="h-4 w-4" />
-              {logoutMutation.isPending ? "Signing out..." : "Sign out"}
-            </Button>
+            <div className="flex flex-wrap items-center justify-end gap-3">
+              <nav
+                aria-label="Legal links"
+                className="flex items-center gap-3 text-xs text-muted-foreground"
+              >
+                <Link className="hover:text-foreground" href="/terms">
+                  Terms and Conditions
+                </Link>
+                <Link className="hover:text-foreground" href="/privacy">
+                  Privacy Policy
+                </Link>
+              </nav>
+              <Button
+                className="gap-2"
+                disabled={logoutMutation.isPending}
+                onClick={handleLogout}
+                variant="outline"
+              >
+                <LogOut className="h-4 w-4" />
+                {logoutMutation.isPending ? "Signing out..." : "Sign out"}
+              </Button>
+            </div>
           </div>
         </header>
 

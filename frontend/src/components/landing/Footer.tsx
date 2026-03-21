@@ -1,4 +1,5 @@
 import { Database } from "lucide-react";
+import Link from "next/link";
 
 export function Footer() {
   return (
@@ -11,6 +12,23 @@ export function Footer() {
             PostgreSQL-first schema planning
           </span>
         </div>
+        <nav
+          aria-label="Legal links"
+          className="flex items-center gap-4 text-sm"
+        >
+          <Link
+            className="text-muted-foreground transition-colors hover:text-foreground"
+            href="/terms"
+          >
+            Terms and Conditions
+          </Link>
+          <Link
+            className="text-muted-foreground transition-colors hover:text-foreground"
+            href="/privacy"
+          >
+            Privacy Policy
+          </Link>
+        </nav>
       </div>
     </footer>
   );

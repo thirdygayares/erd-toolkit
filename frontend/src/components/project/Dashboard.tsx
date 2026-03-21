@@ -3085,12 +3085,18 @@ export function Dashboard({
               >
                 View
               </button>
-              <button
-                type="button"
-                className="rounded px-2 py-1 hover:bg-slate-100"
-              >
-                Help
-              </button>
+              <div className="flex items-center gap-1 rounded px-2 py-1 text-slate-600">
+                <span>Help:</span>
+                <Link className="hover:text-slate-900" href="/terms">
+                  Terms and Conditions
+                </Link>
+                <span aria-hidden className="text-slate-300">
+                  |
+                </span>
+                <Link className="hover:text-slate-900" href="/privacy">
+                  Privacy Policy
+                </Link>
+              </div>
             </div>
           </div>
 
