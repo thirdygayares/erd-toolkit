@@ -10,6 +10,7 @@ class StubSchemaEditorService:
     def __init__(self):
         self.table_id = uuid4()
         self.column_id = uuid4()
+        self.index_id = uuid4()
         self.custom_type_id = uuid4()
 
     def create_table(self, diagram_id, payload, ctx):
@@ -106,6 +107,45 @@ class StubSchemaEditorService:
             "enum_values": payload.enum_values,
             "created_at": datetime.now(timezone.utc),
             "updated_at": datetime.now(timezone.utc),
+        }
+
+    def create_index(self, table_id, payload, ctx):
+        return {
+            "index_id": str(self.index_id),
+            "table_id": table_id,
+            "index_name": payload.index_name,
+            "method": payload.method,
+            "is_unique": payload.is_unique,
+            "comment_text": payload.comment_text,
+            "source": "user",
+            "column_ids": payload.column_ids,
+            "column_names": ["customer_id"],
+        }
+
+    def update_index(self, table_id, index_id, payload, ctx):
+        return {
+            "index_id": index_id,
+            "table_id": table_id,
+            "index_name": payload.index_name,
+            "method": payload.method,
+            "is_unique": payload.is_unique,
+            "comment_text": payload.comment_text,
+            "source": "user",
+            "column_ids": payload.column_ids,
+            "column_names": ["customer_id", "email"],
+        }
+
+    def delete_index(self, table_id, index_id, ctx):
+        return {
+            "index_id": index_id,
+            "table_id": table_id,
+            "index_name": "customers_customer_id_idx",
+            "method": "btree",
+            "is_unique": False,
+            "comment_text": None,
+            "source": "user",
+            "column_ids": [uuid4()],
+            "column_names": ["customer_id"],
         }
 
     def update_custom_type(self, diagram_id, custom_type_id, payload, ctx):
@@ -256,6 +296,57 @@ def test_update_column_with_ui_width(client, app):
 
     assert response.status_code == 200
     assert response.json()["ui_width"] == 420
+
+
+def test_create_index(client, app):
+    app.dependency_overrides[get_schema_editor_service] = lambda: StubSchemaEditorService()
+
+    response = client.post(
+        f"/api/v1/diagrams/{uuid4()}/tables/{uuid4()}/indexes",
+        json={
+            "index_name": "customers_customer_id_idx",
+            "method": "btree",
+            "is_unique": False,
+            "comment_text": "lookup index",
+            "column_ids": [str(uuid4())],
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["index_name"] == "customers_customer_id_idx"
+    assert response.json()["source"] == "user"
+
+
+def test_update_index(client, app):
+    app.dependency_overrides[get_schema_editor_service] = lambda: StubSchemaEditorService()
+    index_id = str(uuid4())
+
+    response = client.patch(
+        f"/api/v1/diagrams/{uuid4()}/tables/{uuid4()}/indexes/{index_id}",
+        json={
+            "index_name": "customers_customer_id_email_idx",
+            "method": "btree",
+            "is_unique": True,
+            "comment_text": "updated",
+            "column_ids": [str(uuid4()), str(uuid4())],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["index_id"] == index_id
+    assert response.json()["is_unique"] is True
+
+
+def test_delete_index(client, app):
+    app.dependency_overrides[get_schema_editor_service] = lambda: StubSchemaEditorService()
+    index_id = str(uuid4())
+
+    response = client.delete(
+        f"/api/v1/diagrams/{uuid4()}/tables/{uuid4()}/indexes/{index_id}"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["index_id"] == index_id
 
 
 def test_delete_column(client, app):

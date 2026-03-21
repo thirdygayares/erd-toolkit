@@ -247,6 +247,28 @@ export interface ColumnMutationResponse {
   updated_at: string;
 }
 
+export interface IndexCreateRequest {
+  index_name: string;
+  method: "btree" | "hash" | "gin" | "gist" | "brin" | "spgist";
+  is_unique: boolean;
+  comment_text?: string | null;
+  column_ids: string[];
+}
+
+export type IndexUpdateRequest = IndexCreateRequest;
+
+export interface IndexMutationResponse {
+  index_id: string;
+  table_id: string;
+  index_name: string;
+  method: "btree" | "hash" | "gin" | "gist" | "brin" | "spgist";
+  is_unique: boolean;
+  comment_text: string | null;
+  source: "user" | "system_pk" | "system_unique_constraint";
+  column_ids: string[];
+  column_names: string[];
+}
+
 export interface CustomTypeCreateRequest {
   schema_name: string;
   type_name: string;
@@ -342,6 +364,7 @@ export interface TableResponse {
   height: number | null;
   color_hex: string | null;
   columns: ColumnResponse[];
+  indexes: IndexMutationResponse[];
 }
 
 export interface RelationshipResponse {

@@ -34,6 +34,13 @@ FROM api.fn_export_get_columns_v2(
 );
 """
 
+GET_INDEXES = """
+SELECT *
+FROM api.fn_export_get_indexes_v1(
+    p_table_id => %(table_id)s::uuid
+);
+"""
+
 GET_RELATIONSHIPS = """
 SELECT *
 FROM api.fn_export_get_relationships(

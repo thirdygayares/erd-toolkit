@@ -1,16 +1,19 @@
 from __future__ import annotations
 
-from psycopg.errors import UndefinedFunction
+from psycopg import Error as PsycopgError
+from psycopg.errors import InvalidTextRepresentation, UndefinedFunction, UniqueViolation
 
 from app.core.context import RequestContext
 from app.core.db import Database
-from app.core.errors import NotFoundError
+from app.core.errors import ConflictError, ForbiddenError, NotFoundError, ValidationError
 from app.features.schema_editor import sql
 from app.features.schema_editor.schemas import (
     ColumnCreateRequest,
     ColumnUpdateRequest,
     CustomTypeCreateRequest,
     CustomTypeUpdateRequest,
+    IndexCreateRequest,
+    IndexUpdateRequest,
     RelationshipCreateRequest,
     RelationshipUpdateRequest,
     TableCreateRequest,
@@ -30,6 +33,44 @@ class SchemaEditorService:
         payload.setdefault("example_value", None)
         payload.setdefault("ui_width", None)
         return payload
+
+    @staticmethod
+    def _normalize_index_row(row: dict | None) -> dict | None:
+        if not row:
+            return row
+        payload = dict(row)
+        payload["index_id"] = str(payload.get("index_id", ""))
+        payload["method"] = str(payload.get("method") or "btree").lower()
+        payload.setdefault("comment_text", None)
+        payload.setdefault("source", "user")
+        payload.setdefault("column_ids", [])
+        payload.setdefault("column_names", [])
+        return payload
+
+    @staticmethod
+    def _map_index_error(exc: PsycopgError) -> None:
+        message = (str(exc).splitlines() or [""])[0].strip()
+
+        if isinstance(exc, UniqueViolation) or "INDEX_NAME_CONFLICT" in message:
+            raise ConflictError("INDEX_NAME_CONFLICT") from exc
+        if "INDEX_SIGNATURE_DUPLICATE" in message:
+            raise ConflictError("INDEX_SIGNATURE_DUPLICATE") from exc
+        if "INDEX_SYSTEM_LOCKED" in message:
+            raise ForbiddenError("INDEX_SYSTEM_LOCKED") from exc
+        if "INDEX_TYPE_UNSUPPORTED" in message:
+            raise ValidationError("INDEX_TYPE_UNSUPPORTED") from exc
+        if "INDEX_COLUMN_NOT_FOUND" in message:
+            raise ValidationError("INDEX_COLUMN_NOT_FOUND") from exc
+        if "INDEX_COLUMN_DUPLICATE" in message:
+            raise ValidationError("INDEX_COLUMN_DUPLICATE") from exc
+        if "INDEX_COLUMN_REQUIRED" in message:
+            raise ValidationError("INDEX_COLUMN_REQUIRED") from exc
+        if "INDEX_NAME_REQUIRED" in message:
+            raise ValidationError("INDEX_NAME_REQUIRED") from exc
+        if isinstance(exc, InvalidTextRepresentation):
+            raise ValidationError("INDEX_ID_INVALID") from exc
+
+        raise exc
 
     def create_table(self, diagram_id: str, payload: TableCreateRequest, ctx: RequestContext) -> dict:
         with self.db.connection() as conn:
@@ -332,4 +373,89 @@ class SchemaEditorService:
                 row = cur.fetchone()
                 if not row:
                     raise NotFoundError("relationship not found")
+                return row
+
+    def create_index(
+        self,
+        table_id: str,
+        payload: IndexCreateRequest,
+        ctx: RequestContext,
+    ) -> dict:
+        with self.db.connection() as conn:
+            self.db.apply_request_context(conn, ctx)
+            with conn.cursor() as cur:
+                try:
+                    cur.execute(
+                        sql.INSERT_INDEX,
+                        {
+                            "table_id": table_id,
+                            "index_name": payload.index_name,
+                            "method": payload.method,
+                            "is_unique": payload.is_unique,
+                            "comment_text": payload.comment_text,
+                            "column_ids": [str(column_id) for column_id in payload.column_ids],
+                        },
+                    )
+                except PsycopgError as exc:
+                    self._map_index_error(exc)
+
+                row = self._normalize_index_row(cur.fetchone())
+                if not row:
+                    raise NotFoundError("unable to create index")
+                return row
+
+    def update_index(
+        self,
+        table_id: str,
+        index_id: str,
+        payload: IndexUpdateRequest,
+        ctx: RequestContext,
+    ) -> dict:
+        with self.db.connection() as conn:
+            self.db.apply_request_context(conn, ctx)
+            with conn.cursor() as cur:
+                try:
+                    cur.execute(
+                        sql.UPDATE_INDEX,
+                        {
+                            "table_id": table_id,
+                            "index_id": index_id,
+                            "index_name": payload.index_name,
+                            "method": payload.method,
+                            "is_unique": payload.is_unique,
+                            "comment_text": payload.comment_text,
+                            "column_ids": [str(column_id) for column_id in payload.column_ids],
+                        },
+                    )
+                except PsycopgError as exc:
+                    self._map_index_error(exc)
+
+                row = self._normalize_index_row(cur.fetchone())
+                if not row:
+                    raise NotFoundError("index not found")
+                return row
+
+    def delete_index(
+        self,
+        table_id: str,
+        index_id: str,
+        ctx: RequestContext,
+    ) -> dict:
+        with self.db.connection() as conn:
+            self.db.apply_request_context(conn, ctx)
+            with conn.cursor() as cur:
+                try:
+                    cur.execute(
+                        sql.DELETE_INDEX,
+                        {
+                            "table_id": table_id,
+                            "index_id": index_id,
+                        },
+                    )
+                except PsycopgError as exc:
+                    self._map_index_error(exc)
+
+                row = self._normalize_index_row(cur.fetchone())
+                if not row:
+                    raise NotFoundError("index not found")
                 return row

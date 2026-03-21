@@ -6,6 +6,9 @@ import type {
   CustomTypeCreateRequest,
   CustomTypeResponse,
   CustomTypeUpdateRequest,
+  IndexCreateRequest,
+  IndexMutationResponse,
+  IndexUpdateRequest,
   RelationshipCreateRequest,
   RelationshipMutationResponse,
   RelationshipUpdateRequest,
@@ -70,6 +73,42 @@ export class SchemaEditorService {
   ): Promise<ColumnMutationResponse> {
     const { data } = await axiosInstance.delete<ColumnMutationResponse>(
       `/diagrams/${diagramId}/tables/${tableId}/columns/${columnId}`,
+    );
+    return data;
+  }
+
+  async createIndex(
+    diagramId: string,
+    tableId: string,
+    payload: IndexCreateRequest,
+  ): Promise<IndexMutationResponse> {
+    const { data } = await axiosInstance.post<IndexMutationResponse>(
+      `/diagrams/${diagramId}/tables/${tableId}/indexes`,
+      payload,
+    );
+    return data;
+  }
+
+  async updateIndex(
+    diagramId: string,
+    tableId: string,
+    indexId: string,
+    payload: IndexUpdateRequest,
+  ): Promise<IndexMutationResponse> {
+    const { data } = await axiosInstance.patch<IndexMutationResponse>(
+      `/diagrams/${diagramId}/tables/${tableId}/indexes/${indexId}`,
+      payload,
+    );
+    return data;
+  }
+
+  async deleteIndex(
+    diagramId: string,
+    tableId: string,
+    indexId: string,
+  ): Promise<IndexMutationResponse> {
+    const { data } = await axiosInstance.delete<IndexMutationResponse>(
+      `/diagrams/${diagramId}/tables/${tableId}/indexes/${indexId}`,
     );
     return data;
   }

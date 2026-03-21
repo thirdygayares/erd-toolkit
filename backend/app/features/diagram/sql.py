@@ -37,6 +37,13 @@ FROM api.fn_diagram_get_columns(
 );
 """
 
+GET_INDEXES_BY_DIAGRAM = """
+SELECT *
+FROM api.fn_diagram_get_indexes(
+    p_diagram_id => %(diagram_id)s::uuid
+);
+"""
+
 GET_RELATIONSHIPS = """
 SELECT *
 FROM api.fn_diagram_get_relationships(

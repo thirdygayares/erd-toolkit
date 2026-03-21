@@ -134,7 +134,7 @@ class ExportService:
     ) -> dict:
         with self.db.connection() as conn:
             self.db.apply_request_context(conn, ctx)
-            tables, relationships, custom_types, columns_by_table = self._load_export_entities(
+            tables, relationships, custom_types, columns_by_table, _indexes_by_table = self._load_export_entities(
                 conn,
                 diagram_id,
                 source_schema_names=payload.source_schema_names,
@@ -174,7 +174,7 @@ class ExportService:
         source_schema_names: list[str] | None = None,
         export_all_schemas: bool = True,
     ) -> tuple[str, int]:
-        tables, relationships, custom_types, columns_by_table = self._load_export_entities(
+        tables, relationships, custom_types, columns_by_table, indexes_by_table = self._load_export_entities(
             conn,
             diagram_id,
             source_schema_names=source_schema_names or [],
@@ -258,6 +258,28 @@ class ExportService:
                 )
             statements.append(create_table_sql)
 
+        for table in tables:
+            export_table_name = export_table_lookup.get(str(table["table_id"]), table["table_name"])
+            table_indexes = indexes_by_table.get(str(table["table_id"]), [])
+            for index_meta in table_indexes:
+                column_names = list(index_meta.get("column_names") or [])
+                if not column_names:
+                    warnings.append(
+                        "-- WARNING: skipped index "
+                        f"{self._q(index_meta['index_name'])} because it has no columns."
+                    )
+                    continue
+                statements.extend(
+                    self._render_index_sql(
+                        target_schema=target_schema,
+                        table_name=export_table_name,
+                        index_name=index_meta["index_name"],
+                        method=index_meta.get("method") or "btree",
+                        is_unique=bool(index_meta.get("is_unique")),
+                        column_names=column_names,
+                    )
+                )
+
         for rel in relationships:
             from_table = export_table_lookup.get(str(rel["from_table_id"]))
             to_table = export_table_lookup.get(str(rel["to_table_id"]))
@@ -312,7 +334,7 @@ class ExportService:
         *,
         source_schema_names: list[str],
         export_all_schemas: bool,
-    ) -> tuple[list[dict], list[dict], list[dict], dict[str, list[dict]]]:
+    ) -> tuple[list[dict], list[dict], list[dict], dict[str, list[dict]], dict[str, list[dict]]]:
         with conn.cursor() as cur:
             cur.execute(sql.GET_TABLES, {"diagram_id": diagram_id})
             tables = cur.fetchall()
@@ -349,13 +371,17 @@ class ExportService:
             ]
 
             columns_by_table: dict[str, list[dict]] = defaultdict(list)
+            indexes_by_table: dict[str, list[dict]] = defaultdict(list)
             for table in tables:
                 cur.execute(sql.GET_COLUMNS, {"table_id": table["table_id"]})
                 cols = cur.fetchall()
                 cols.sort(key=lambda column: column.get("ordinal_position") or 0)
                 columns_by_table[str(table["table_id"])] = cols
+                cur.execute(sql.GET_INDEXES, {"table_id": table["table_id"]})
+                idx_rows = cur.fetchall()
+                indexes_by_table[str(table["table_id"])] = idx_rows
 
-        return tables, relationships, custom_types, columns_by_table
+        return tables, relationships, custom_types, columns_by_table, indexes_by_table
 
     def _build_dictionary_rows(
         self,
@@ -708,6 +734,28 @@ class ExportService:
             "  WHEN duplicate_object THEN NULL;\n"
             "END $$;"
         )
+
+    def _render_index_sql(
+        self,
+        *,
+        target_schema: str,
+        table_name: str,
+        index_name: str,
+        method: str,
+        is_unique: bool,
+        column_names: list[str],
+    ) -> list[str]:
+        rendered_columns = ", ".join(self._q(column_name) for column_name in column_names)
+        normalized_method = str(method).strip().lower() or "btree"
+        unique_clause = "UNIQUE " if is_unique else ""
+        return [
+            f"DROP INDEX IF EXISTS {self._q(target_schema)}.{self._q(index_name)};",
+            (
+                f"CREATE {unique_clause}INDEX {self._q(index_name)} "
+                f"ON {self._q(target_schema)}.{self._q(table_name)} "
+                f"USING {normalized_method} ({rendered_columns});"
+            ),
+        ]
 
     @classmethod
     def _is_identity_default(cls, default_sql: str) -> bool:
