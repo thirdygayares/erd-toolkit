@@ -2,6 +2,7 @@ import { axiosInstance } from "@/lib/axiosInstance";
 import type {
   ImportPostgresRequest,
   ImportPostgresResponse,
+  ImportSqlRawRequest,
   PostgresConnectionRequest,
   PostgresConnectionTestResponse,
   PostgresSchemaListResponse,
@@ -37,6 +38,31 @@ export class IntrospectionService {
     const { data } = await axiosInstance.post<ImportPostgresResponse>(
       `/diagrams/${diagramId}/import/postgres`,
       payload,
+    );
+    return data;
+  }
+
+  async importSqlRaw(
+    diagramId: string,
+    payload: ImportSqlRawRequest,
+  ): Promise<ImportPostgresResponse> {
+    const { data } = await axiosInstance.post<ImportPostgresResponse>(
+      `/diagrams/${diagramId}/import/sql/raw`,
+      payload,
+    );
+    return data;
+  }
+
+  async importSqlFile(
+    diagramId: string,
+    file: File,
+  ): Promise<ImportPostgresResponse> {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const { data } = await axiosInstance.post<ImportPostgresResponse>(
+      `/diagrams/${diagramId}/import/sql/file`,
+      formData,
     );
     return data;
   }

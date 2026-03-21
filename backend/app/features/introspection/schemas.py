@@ -41,3 +41,7 @@ class ImportPostgresResponse(BaseModel):
     table_count: int
     column_count: int
     relationship_count: int
+
+
+class ImportSqlRawRequest(BaseModel):
+    sql: str = Field(min_length=1)

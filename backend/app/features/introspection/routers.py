@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, File, UploadFile, status
 
 from app.core.context import RequestContext, get_request_context
 from app.core.db import get_db
 from app.features.introspection.schemas import (
     ImportPostgresRequest,
     ImportPostgresResponse,
+    ImportSqlRawRequest,
     PostgresConnectionRequest,
     PostgresConnectionTestResponse,
     PostgresSchemaListResponse,
@@ -32,6 +33,36 @@ def import_postgres(
     service: IntrospectionService = Depends(get_introspection_service),
 ) -> ImportPostgresResponse:
     return ImportPostgresResponse(**service.import_postgres(diagram_id, payload, ctx))
+
+
+@router.post(
+    "/diagrams/{diagram_id}/import/sql/raw",
+    response_model=ImportPostgresResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def import_sql_raw(
+    diagram_id: str,
+    payload: ImportSqlRawRequest,
+    ctx: RequestContext = Depends(get_request_context),
+    service: IntrospectionService = Depends(get_introspection_service),
+) -> ImportPostgresResponse:
+    return ImportPostgresResponse(**service.import_sql_raw(diagram_id, payload, ctx))
+
+
+@router.post(
+    "/diagrams/{diagram_id}/import/sql/file",
+    response_model=ImportPostgresResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def import_sql_file(
+    diagram_id: str,
+    file: UploadFile = File(...),
+    ctx: RequestContext = Depends(get_request_context),
+    service: IntrospectionService = Depends(get_introspection_service),
+) -> ImportPostgresResponse:
+    return ImportPostgresResponse(
+        **service.import_sql_file(diagram_id, file.file.read(), file.filename, ctx)
+    )
 
 
 @router.post(

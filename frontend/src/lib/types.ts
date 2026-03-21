@@ -401,6 +401,10 @@ export interface ImportPostgresResponse {
   relationship_count: number;
 }
 
+export interface ImportSqlRawRequest {
+  sql: string;
+}
+
 export interface ExportSqlRequest {
   target_schema: string;
   source_schema_names?: string[];
