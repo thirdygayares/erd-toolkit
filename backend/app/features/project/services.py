@@ -6,7 +6,11 @@ from app.core.context import RequestContext
 from app.core.db import Database
 from app.core.errors import ConflictError, NotFoundError
 from app.features.project import sql
-from app.features.project.schemas import ProjectCreateRequest, ProjectVisibilityUpdateRequest
+from app.features.project.schemas import (
+    ProjectCreateRequest,
+    ProjectUpdateRequest,
+    ProjectVisibilityUpdateRequest,
+)
 
 
 class ProjectService:
@@ -78,6 +82,32 @@ class ProjectService:
                         "allow_anonymous_edit": payload.allow_anonymous_edit,
                     },
                 )
+                row = cur.fetchone()
+                if not row or row.get("project_id") is None:
+                    raise NotFoundError("project not found or not editable")
+                return row
+
+    def update_project(
+        self,
+        project_id: str,
+        payload: ProjectUpdateRequest,
+        ctx: RequestContext,
+    ) -> dict:
+        with self.db.connection() as conn:
+            self.db.apply_request_context(conn, ctx)
+            with conn.cursor() as cur:
+                try:
+                    cur.execute(
+                        sql.UPDATE_PROJECT,
+                        {
+                            "project_id": project_id,
+                            "name": payload.name,
+                            "description": payload.description,
+                            "actor_id": str(ctx.current_user_id) if ctx.current_user_id else None,
+                        },
+                    )
+                except UniqueViolation as exc:
+                    self._raise_conflict_for_unique_violation(exc)
                 row = cur.fetchone()
                 if not row or row.get("project_id") is None:
                     raise NotFoundError("project not found or not editable")

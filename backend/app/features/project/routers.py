@@ -9,6 +9,7 @@ from app.features.project.schemas import (
     ProjectDuplicateRequest,
     ProjectListResponse,
     ProjectResponse,
+    ProjectUpdateRequest,
     ProjectVisibilityUpdateRequest,
 )
 from app.features.project.services import ProjectService
@@ -57,6 +58,16 @@ def set_project_visibility(
     return ProjectResponse(**service.set_visibility(project_id, payload, ctx))
 
 
+@router.patch("/projects/{project_id}", response_model=ProjectResponse)
+def update_project(
+    project_id: str,
+    payload: ProjectUpdateRequest,
+    ctx: RequestContext = Depends(get_request_context),
+    service: ProjectService = Depends(get_project_service),
+) -> ProjectResponse:
+    return ProjectResponse(**service.update_project(project_id, payload, ctx))
+
+
 @router.get("/share/{share_slug}", response_model=ProjectResponse)
 def get_project_by_share_slug(
     share_slug: str,
@@ -74,4 +85,3 @@ def duplicate_project(
     service: ProjectService = Depends(get_project_service),
 ) -> ProjectResponse:
     return ProjectResponse(**service.duplicate_project(project_id, payload.name, ctx))
-

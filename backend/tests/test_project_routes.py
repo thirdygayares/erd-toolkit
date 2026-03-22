@@ -57,6 +57,21 @@ class StubProjectService:
             "updated_at": datetime.now(timezone.utc),
         }
 
+    def update_project(self, project_id, payload, ctx):
+        return {
+            "project_id": project_id,
+            "workspace_id": self.workspace_id,
+            "owner_user_id": None,
+            "name": payload.name or "Project",
+            "description": payload.description,
+            "visibility": "public",
+            "share_slug": "share-abc",
+            "allow_anonymous_edit": True,
+            "is_archived": False,
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
+        }
+
     def get_project(self, project_id, ctx):
         return {
             "project_id": project_id,
@@ -144,6 +159,19 @@ def test_list_projects(client, app):
     body = response.json()
     assert len(body) == 1
     assert body[0]["workspace_name"] == "Default Workspace"
+
+
+def test_update_project(client, app):
+    service = StubProjectService()
+    app.dependency_overrides[get_project_service] = lambda: service
+
+    response = client.patch(
+        f"/api/v1/projects/{uuid4()}",
+        json={"name": "Renamed Project"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["name"] == "Renamed Project"
 
 
 def test_duplicate_project(client, app):

@@ -24,6 +24,11 @@ class ProjectVisibilityUpdateRequest(BaseModel):
     allow_anonymous_edit: bool = False
 
 
+class ProjectUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=140)
+    description: str | None = None
+
+
 class ProjectResponse(BaseModel):
     project_id: UUID
     workspace_id: UUID
