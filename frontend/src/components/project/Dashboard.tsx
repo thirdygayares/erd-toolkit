@@ -5744,6 +5744,8 @@ export function Dashboard({
                     targetColumnId: connection.toColumnId,
                   }));
                 }}
+                onEditRelationship={openEditRelationshipDialog}
+                onDeleteRelationship={(id) => void deleteRelationship(id)}
               />
             )}
           </div>
