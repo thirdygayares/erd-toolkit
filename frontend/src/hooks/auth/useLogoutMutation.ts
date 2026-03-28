@@ -13,9 +13,15 @@ export function useLogoutMutation() {
 
   return useMutation({
     mutationFn: () => authService.logout(),
-    onSuccess: () => {
+    onSuccess: async () => {
+      await queryClient.cancelQueries({
+        queryKey: queryKeys.auth.session(),
+      });
       setStoredCsrfToken(null);
-      queryClient.removeQueries({ queryKey: queryKeys.auth.session() });
+      queryClient.setQueryData(queryKeys.auth.session(), undefined);
+      queryClient.removeQueries({
+        predicate: (query) => query.queryKey[0] !== "Auth",
+      });
     },
   });
 }

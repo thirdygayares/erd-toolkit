@@ -170,7 +170,13 @@ export function AuthLanding() {
                     onClick={() => {
                       logoutMutation
                         .mutateAsync()
-                        .then(() => router.refresh())
+                        .then(() => {
+                          if (typeof window !== "undefined") {
+                            window.location.replace("/");
+                            return;
+                          }
+                          router.push("/");
+                        })
                         .catch(() => undefined);
                     }}
                     variant="ghost"
