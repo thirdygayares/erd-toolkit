@@ -3,7 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -55,6 +55,26 @@ class Settings(BaseSettings):
             return None
         cleaned = str(value).strip()
         return cleaned or None
+
+    @field_validator("auth_cookie_samesite", mode="before")
+    @classmethod
+    def normalize_cookie_samesite(cls, value: str) -> str:
+        cleaned = str(value).strip().lower()
+        if cleaned not in {"lax", "strict", "none"}:
+            raise ValueError("auth_cookie_samesite must be one of: lax, strict, none")
+        return cleaned
+
+    @model_validator(mode="after")
+    def validate_auth_cookie_settings(self) -> "Settings":
+        if self.auth_refresh_ttl_days < 1:
+            raise ValueError("auth_refresh_ttl_days must be at least 1 day")
+
+        if self.auth_cookie_samesite == "none" and not self.auth_cookie_secure:
+            raise ValueError(
+                "auth_cookie_secure must be true when auth_cookie_samesite is 'none'",
+            )
+
+        return self
 
     @property
     def database_dsn(self) -> str:

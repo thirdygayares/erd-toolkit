@@ -122,7 +122,13 @@ export function ProjectListPage() {
   const handleLogout = () => {
     logoutMutation
       .mutateAsync()
-      .then(() => router.push("/"))
+      .then(() => {
+        if (typeof window !== "undefined") {
+          window.location.replace("/");
+          return;
+        }
+        router.push("/");
+      })
       .catch(() => undefined);
   };
 

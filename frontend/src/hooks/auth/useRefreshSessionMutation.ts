@@ -19,6 +19,9 @@ export function useRefreshSessionMutation() {
         user: session.user,
         csrf_token: session.csrf_token ?? null,
       });
+      queryClient.invalidateQueries({
+        predicate: (query) => query.queryKey[0] !== "Auth",
+      });
     },
   });
 }

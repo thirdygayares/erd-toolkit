@@ -39,7 +39,7 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { useAuthSessionQuery } from "@/hooks/auth/useAuthSessionQuery";
+import { useSessionProvider } from "@/components/providers/SessionProvider";
 import { useCreateDiagramMutation } from "@/hooks/diagram/useCreateDiagramMutation";
 import { useCreateSnapshotMutation } from "@/hooks/diagram/useCreateSnapshotMutation";
 import { useGetDiagramQuery } from "@/hooks/diagram/useGetDiagramQuery";
@@ -615,7 +615,7 @@ export function Dashboard({
 
   const attemptedDiagramCreateKeyRef = useRef<string | null>(null);
 
-  const sessionQuery = useAuthSessionQuery();
+  const { isSessionRecoveryPending, sessionQuery } = useSessionProvider();
   const isAuthenticated = Boolean(sessionQuery.data?.user);
   const { data: workspaces = [] } = useListWorkspacesQuery(isAuthenticated);
   const duplicateProjectMutation = useDuplicateProjectMutation();
@@ -3328,6 +3328,26 @@ export function Dashboard({
     setIsCreateProjectOpen(true);
   }
 
+  const isProjectResolutionPending =
+    !activeProjectId ||
+    sessionQuery.isPending ||
+    isSessionRecoveryPending ||
+    projectQuery.isPending ||
+    (projectQuery.data && !workspaceId);
+
+  if (isProjectResolutionPending) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-100">
+        <div className="rounded-xl border border-slate-200 bg-white px-6 py-5 shadow-sm">
+          <div className="flex items-center gap-3 text-slate-700">
+            <RefreshCw className="h-5 w-5 animate-spin" />
+            <span className="font-medium">Loading project workspace...</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (projectQuery.isError || !projectQuery.data) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4">
@@ -3346,19 +3366,6 @@ export function Dashboard({
           >
             Back To Home
           </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (projectQuery.isLoading || (projectQuery.data && !workspaceId)) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-100">
-        <div className="rounded-xl border border-slate-200 bg-white px-6 py-5 shadow-sm">
-          <div className="flex items-center gap-3 text-slate-700">
-            <RefreshCw className="h-5 w-5 animate-spin" />
-            <span className="font-medium">Loading project workspace...</span>
-          </div>
         </div>
       </div>
     );
@@ -3472,22 +3479,21 @@ export function Dashboard({
                   </div>
                 )}
               </div>
-              <button
-                type="button"
-                className="rounded px-2 py-1 hover:bg-slate-100"
-              >
-                Edit
-              </button>
-              <button
-                type="button"
-                className="rounded px-2 py-1 hover:bg-slate-100"
-              >
-                View
-              </button>
-              <div className="flex items-center gap-1 rounded px-2 py-1 text-slate-600">
-                <span>Help</span>
-
-              </div>
+              {/*<button*/}
+              {/*  type="button"*/}
+              {/*  className="rounded px-2 py-1 hover:bg-slate-100"*/}
+              {/*>*/}
+              {/*  Edit*/}
+              {/*</button>*/}
+              {/*<button*/}
+              {/*  type="button"*/}
+              {/*  className="rounded px-2 py-1 hover:bg-slate-100"*/}
+              {/*>*/}
+              {/*  View*/}
+              {/*</button>*/}
+              {/*<div className="flex items-center gap-1 rounded px-2 py-1 text-slate-600">*/}
+              {/*  <span>Help</span>*/}
+              {/*</div>*/}
             </div>
           </div>
 
