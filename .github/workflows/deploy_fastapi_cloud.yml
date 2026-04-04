@@ -12,6 +12,7 @@ jobs:
   deploy:
     name: "Deploy"
     runs-on: ubuntu-latest
+    environment: Production
 
     steps:
       - name: Checkout
@@ -27,6 +28,15 @@ jobs:
         run: |
           uv venv
           uv pip install -r requirements.txt
+
+      - name: Validate FastAPI Cloud secrets
+        shell: bash
+        run: |
+          test -n "${FASTAPI_CLOUD_TOKEN}" || { echo "Missing FASTAPI_CLOUD_TOKEN"; exit 1; }
+          test -n "${FASTAPI_CLOUD_APP_ID}" || { echo "Missing FASTAPI_CLOUD_APP_ID"; exit 1; }
+        env:
+          FASTAPI_CLOUD_TOKEN: ${{ secrets.FASTAPI_CLOUD_TOKEN }}
+          FASTAPI_CLOUD_APP_ID: ${{ secrets.FASTAPI_CLOUD_APP_ID }}
 
       - name: Deploy to FastAPI Cloud
         working-directory: backend
