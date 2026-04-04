@@ -21,7 +21,9 @@ Current state:
 - Frontend: Next.js 16, React 19, TypeScript
 - Styling/UI: Tailwind CSS 4, shadcn/ui setup, Radix UI, Lucide Icons
 - Backend (target): FastAPI + Pydantic
+- Backend deployment: FastAPI Cloud
 - Database: PostgreSQL
+- DB Platform: Supabase
 - Migrations: Flyway
 - Lint/Format: Biome
 - Package manager: pnpm
@@ -87,3 +89,8 @@ flyway -configFiles=flyway.conf migrate
 ```
 
 Update `flyway.conf` credentials if your local PostgreSQL setup is different.
+This can point to a local PostgreSQL instance or a Supabase Postgres connection.
+
+## Acknowledgements
+
+- Thanks to the FastAPI organization and FastAPI Cloud for the ecosystem and deployment support.
