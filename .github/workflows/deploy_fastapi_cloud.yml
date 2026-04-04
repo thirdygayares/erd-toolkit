@@ -1,4 +1,6 @@
 name: "Deploy in FastAPI cloud"
+permissions:
+  contents: read
 
 on:
   push:
