@@ -8,17 +8,21 @@
     "start": "next start",
     "lint": "biome check",
     "format": "biome format --write",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@playwright/test": "^1.59.1",
     "@tanstack/react-query": "^5.90.21",
     "@xyflow/react": "^12.10.1",
     "axios": "^1.13.6",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "dotenv": "^17.4.0",
     "lucide-react": "^0.575.0",
     "next": "16.1.6",
     "next-sitemap": "^4.2.3",
+    "playwright": "^1.59.1",
     "radix-ui": "^1.4.3",
     "react": "19.2.3",
     "react-dom": "19.2.3",
