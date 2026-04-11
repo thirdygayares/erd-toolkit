@@ -29,16 +29,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@latest --activate
+
       - name: Show versions
-        run: node -v && npm -v
+        run: node -v && npm -v && pnpm -v
 
       - name: Install deps
         run: |
-          npm ci
-          npx playwright install --with-deps
+          pnpm install --frozen-lockfile
+          pnpm exec playwright install --with-deps
 
       - name: Run Playwright tests
-        run: npx playwright test
+        run: pnpm exec playwright test
 
       - name: Upload HTML report
         if: always()
