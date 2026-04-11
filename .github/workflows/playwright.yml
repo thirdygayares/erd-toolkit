@@ -1,0 +1,136 @@
+name: Playwright E2E
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main, staging]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  playwright-end-to-end-test:
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.42.1-jammy
+
+    env:
+      NEXT_PLAYWRIGHT_BASE_URL: ${{ vars.NEXT_PLAYWRIGHT_LOCAL_BASE_URL }}
+      NEXT_PUBLIC_API_BASE_URL: ${{ vars.NEXT_PUBLIC_API_BASE_URL_STAGING }}
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@latest --activate
+
+      - name: Show versions
+        run: node -v && npm -v && pnpm -v
+
+      - name: Install deps
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec playwright install --with-deps
+
+      - name: Run Playwright tests
+        run: pnpm exec playwright test
+
+      - name: Upload HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-html-report
+          path: frontend/reports/html
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload traces & screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results
+          path: |
+            frontend/test-results
+            frontend/playwright-report
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Build totals line
+        id: totals
+        if: always()
+        shell: bash
+        run: |
+          FILE="reports/junit/results.xml"
+          if [[ -f "$FILE" ]]; then
+            XML=$(cat "$FILE")
+            total=$(echo "$XML"   | sed -n 's/.*tests="\([0-9]\+\)".*/\1/p'   | head -1)
+            fails=$(echo "$XML"   | sed -n 's/.*failures="\([0-9]\+\)".*/\1/p'| head -1)
+            skips=$(echo "$XML"   | sed -n 's/.*skipped="\([0-9]\+\)".*/\1/p' | head -1)
+            [[ -z "$skips" ]] && skips=0
+            [[ -z "$fails" ]] && fails=0
+            [[ -z "$total" ]] && total=0
+            passed=$(( total - fails - skips ))
+            [[ $passed -lt 0 ]] && passed=0
+            echo "summary=Total: ${total} | Passed: ${passed} | Failed: ${fails} | Skipped: ${skips}" >> "$GITHUB_OUTPUT"
+          else
+            echo "summary=Total: 0 | Passed: 0 | Failed: 0 | Skipped: 0" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build results table
+        id: results_table
+        if: always()
+        shell: bash
+        run: |
+          FILE="reports/junit/results.xml"
+          if [[ ! -f "$FILE" ]]; then
+            {
+              echo "table<<EOF"
+              echo "_No JUnit results found._"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import xml.etree.ElementTree as ET
+
+          file_path = "reports/junit/results.xml"
+          root = ET.parse(file_path).getroot()
+          rows = ["| Test | Status | Duration |", "| --- | --- | --- |"]
+
+          for testcase in root.findall(".//testcase"):
+            name = " ".join((testcase.get("name") or "").split()).replace("|", "\\|")
+            duration = f"{float(testcase.get('time') or 0):.1f}s"
+            if testcase.find("failure") is not None:
+              status = "Failed"
+            elif testcase.find("skipped") is not None:
+              status = "Skipped"
+            else:
+              status = "Passed"
+            rows.append(f"| {name} | {status} | {duration} |")
+
+          print("table<<EOF")
+          print("\n".join(rows))
+          print("EOF")
+          PY
+
+      - name: Comment to PR
+        if: ${{ always() && github.event_name == 'pull_request' }}
+        uses: thollander/actions-comment-pull-request@v3
+        with:
+          github-token: ${{ github.token }}
+          message: |
+            ${{ job.status == 'success' && '✅' || '❌' }} **Playwright E2E**
+            ${{ steps.totals.outputs.summary }}
+
+            ${{ steps.results_table.outputs.table }}

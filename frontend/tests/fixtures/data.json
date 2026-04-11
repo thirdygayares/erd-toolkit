@@ -1,0 +1,18 @@
+{
+  "apiBaseUrl": "http://localhost:8000/api/v1",
+  "password": "StrongPass123!",
+  "wrongPassword": "WrongPass123!",
+  "projectDescription": "Project flow smoke test",
+  "prefixes": {
+    "displayName": "Playwright User",
+    "emailLocalPart": "playwright-user",
+    "workspace": "Playwright Workspace",
+    "project": "Playwright Project"
+  },
+  "routes": {
+    "home": "/",
+    "login": "/auth/login",
+    "projects": "/projects",
+    "register": "/auth/register"
+  }
+}
