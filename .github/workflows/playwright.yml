@@ -2,9 +2,9 @@ name: Playwright E2E
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main, staging ]
+    branches: [main, staging]
   workflow_dispatch:
 
 permissions:
@@ -12,13 +12,18 @@ permissions:
   pull-requests: write
 
 jobs:
-  plawright-end-to-end-test:
+  playwright-end-to-end-test:
     runs-on: ubuntu-latest
     container:
       image: mcr.microsoft.com/playwright:v1.42.1-jammy
+
     env:
       NEXT_PLAYWRIGHT_BASE_URL: ${{ vars.NEXT_PLAYWRIGHT_LOCAL_BASE_URL }}
       NEXT_PUBLIC_API_BASE_URL: ${{ vars.NEXT_PUBLIC_API_BASE_URL_STAGING }}
+
+    defaults:
+      run:
+        working-directory: frontend
 
     steps:
       - name: Checkout
@@ -40,7 +45,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: playwright-html-report
-          path: reports/html
+          path: frontend/reports/html
           if-no-files-found: ignore
           retention-days: 7
 
@@ -50,8 +55,8 @@ jobs:
         with:
           name: playwright-results
           path: |
-            test-results
-            playwright-report
+            frontend/test-results
+            frontend/playwright-report
           if-no-files-found: ignore
           retention-days: 7
 
