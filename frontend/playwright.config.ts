@@ -43,9 +43,17 @@ export default defineConfig({
 
   // Keep CI lean; add more later if needed
   projects: [
-    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
-    // { name: 'firefox', use: { ...devices['Desktop Firefox'] } },
-    // { name: 'webkit',  use: { ...devices['Desktop Safari'] } },
+    {
+      name: 'browserstack_edge',
+      use: {
+        browserName: 'chromium',
+        channel: 'msedge',
+      },
+    },
+    {
+      name: 'chromium',
+      use: { browserName: 'chromium' },
+    },
   ],
 
   ...(useLocal

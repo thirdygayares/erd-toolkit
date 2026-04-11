@@ -91,6 +91,11 @@ flyway -configFiles=flyway.conf migrate
 Update `flyway.conf` credentials if your local PostgreSQL setup is different.
 This can point to a local PostgreSQL instance or a Supabase Postgres connection.
 
+## How to run Browserstack
+ ```
+ pnpm test:bs
+ ```
+
 ## Acknowledgements
 
 - Thanks to the FastAPI organization and FastAPI Cloud for the ecosystem and deployment support.
