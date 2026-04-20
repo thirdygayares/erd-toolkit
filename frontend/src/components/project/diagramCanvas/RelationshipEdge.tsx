@@ -7,6 +7,7 @@ import {
   getSmoothStepPath,
   Position,
 } from "@xyflow/react";
+import { Pencil } from "lucide-react";
 
 type Cardinality = "1" | "N";
 
@@ -14,6 +15,8 @@ interface RelationshipEdgeData {
   cardinalityFrom: Cardinality;
   cardinalityTo: Cardinality;
   isActive: boolean;
+  relationshipId: string;
+  onEditRelationship?: (relationshipId: string) => void;
 }
 
 function getBadgeOffset(position: Position, distance: number) {
@@ -60,6 +63,9 @@ export function RelationshipEdge({
   const sourceOffset = getBadgeOffset(sourcePosition, 3);
   const targetOffset = getBadgeOffset(targetPosition, 3);
 
+  const midX = (sourceX + targetX) / 2;
+  const midY = (sourceY + targetY) / 2;
+
   return (
     <>
       <BaseEdge
@@ -89,6 +95,26 @@ export function RelationshipEdge({
         >
           {targetLabel}
         </div>
+
+        {isActive && relationshipData.onEditRelationship ? (
+          <button
+            type="button"
+            className="nodrag nopan absolute z-30 flex h-7 w-7 items-center justify-center rounded-full border border-slate-300 bg-white shadow-md transition-transform hover:scale-110 hover:bg-slate-50"
+            style={{
+              pointerEvents: "auto",
+              transform: `translate(-50%, -50%) translate(${midX}px, ${midY}px)`,
+            }}
+            title="Edit Relationship"
+            onClick={(e) => {
+              e.stopPropagation();
+              relationshipData.onEditRelationship?.(
+                relationshipData.relationshipId,
+              );
+            }}
+          >
+            <Pencil className="h-3.5 w-3.5 text-slate-600" />
+          </button>
+        ) : null}
       </EdgeLabelRenderer>
     </>
   );

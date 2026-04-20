@@ -5,6 +5,7 @@ import {
   ConnectionMode,
   Controls,
   type Edge,
+  type EdgeMouseHandler,
   MiniMap,
   type NodeMouseHandler,
   type OnConnect,
@@ -51,6 +52,8 @@ interface DiagramCanvasProps {
     toTableId: string;
     toColumnId: string;
   }) => void;
+  onEditRelationship: (relationshipId: string) => void;
+  onDeleteRelationship: (relationshipId: string) => void;
 }
 
 const nodeTypes = {
@@ -72,6 +75,12 @@ type NodeMenuState = {
   x: number;
   y: number;
   tableId: string;
+};
+
+type EdgeMenuState = {
+  x: number;
+  y: number;
+  relationshipId: string;
 };
 
 function extractColumnId(handleId: string | null | undefined) {
@@ -103,12 +112,15 @@ export function DiagramCanvas({
   onInlineRenameColumn,
   onInlineChangeColumnType,
   onManualConnect,
+  onEditRelationship,
+  onDeleteRelationship,
 }: DiagramCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [reactFlowInstance, setReactFlowInstance] =
     useState<ReactFlowInstance | null>(null);
   const [paneMenu, setPaneMenu] = useState<PaneMenuState | null>(null);
   const [nodeMenu, setNodeMenu] = useState<NodeMenuState | null>(null);
+  const [edgeMenu, setEdgeMenu] = useState<EdgeMenuState | null>(null);
 
   const nodes: TableNodeType[] = useMemo(() => {
     const relatedColumnsByTable = new Map<string, Set<string>>();
@@ -177,13 +189,16 @@ export function DiagramCanvas({
         isActive:
           relationship.from_table_id === selectedTableId ||
           relationship.to_table_id === selectedTableId,
+        relationshipId: relationship.relationship_id,
+        onEditRelationship,
       },
     }));
-  }, [diagram?.relationships, selectedTableId]);
+  }, [diagram?.relationships, onEditRelationship, selectedTableId]);
 
   const closeMenus = useCallback(() => {
     setPaneMenu(null);
     setNodeMenu(null);
+    setEdgeMenu(null);
   }, []);
 
   const handleNodeClick: NodeMouseHandler = useCallback(
@@ -239,6 +254,26 @@ export function DiagramCanvas({
     [onSelectTable],
   );
 
+  const handleEdgeContextMenu: EdgeMouseHandler = useCallback(
+    (event, edge) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!containerRef.current) {
+        return;
+      }
+
+      const bounds = containerRef.current.getBoundingClientRect();
+      setPaneMenu(null);
+      setNodeMenu(null);
+      setEdgeMenu({
+        x: event.clientX - bounds.left,
+        y: event.clientY - bounds.top,
+        relationshipId: edge.id,
+      });
+    },
+    [],
+  );
+
   const handleConnect: OnConnect = useCallback(
     (connection) => {
       const fromColumnId = extractColumnId(connection.sourceHandle);
@@ -279,6 +314,7 @@ export function DiagramCanvas({
         onNodeClick={handleNodeClick}
         onNodeContextMenu={handleNodeContextMenu}
         onPaneContextMenu={handlePaneContextMenu}
+        onEdgeContextMenu={handleEdgeContextMenu}
         onPaneClick={closeMenus}
         onNodeDragStop={(_event, node) => {
           onTablePositionChange(node.id, node.position);
@@ -379,6 +415,36 @@ export function DiagramCanvas({
             className="flex w-full items-center justify-between px-4 py-3 text-left text-lg text-red-600 hover:bg-red-50"
           >
             <span>Delete Table</span>
+            <Trash2 className="h-5 w-5" />
+          </button>
+        </div>
+      ) : null}
+
+      {edgeMenu ? (
+        <div
+          className="absolute z-20 w-64 overflow-hidden rounded-xl border border-slate-300 bg-white shadow-xl"
+          style={{ left: edgeMenu.x, top: edgeMenu.y }}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              onEditRelationship(edgeMenu.relationshipId);
+              closeMenus();
+            }}
+            className="flex w-full items-center justify-between px-4 py-3 text-left text-lg hover:bg-slate-100"
+          >
+            <span>Edit Relationship</span>
+            <Pencil className="h-5 w-5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onDeleteRelationship(edgeMenu.relationshipId);
+              closeMenus();
+            }}
+            className="flex w-full items-center justify-between border-t border-slate-200 px-4 py-3 text-left text-lg text-red-600 hover:bg-red-50"
+          >
+            <span>Delete Relationship</span>
             <Trash2 className="h-5 w-5" />
           </button>
         </div>
